@@ -1,0 +1,11 @@
+# Everything needed to run what is in this repository.
+#
+#   python -m venv .venv
+#   .venv\Scripts\activate        (Windows)   |   source .venv/bin/activate
+#   pip install -r requirements.txt
+#
+# One library so far: Jinja renders every template. Anything that reaches the
+# network gets added here the day it is written, not before -- a dependency
+# nothing imports is a dependency nobody maintains.
+
+jinja2>=3.1.4
