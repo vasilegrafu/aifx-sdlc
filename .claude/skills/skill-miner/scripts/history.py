@@ -27,7 +27,7 @@ from collections import Counter, defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _common import emit, git, has_git, section, table  # noqa: E402
+from _common import emit, git, has_git, repo_prefix, section, table  # noqa: E402
 
 FIX_RE = re.compile(r"\b(fix|fixes|fixed|bug|bugfix|hotfix|regress\w*|patch|broken)\b", re.I)
 REVERT_RE = re.compile(r"^\s*revert\b|\brevert(s|ed|ing)?\b", re.I)
@@ -68,10 +68,21 @@ def parse_log(root: Path, months: int, max_commits: int):
     return commits
 
 
-def scoped(files, includes):
-    if not includes:
-        return files
-    return [f for f in files if any(f.startswith(i.strip("/")) for i in includes)]
+def scoped(files, includes, prefix=""):
+    """Git prints repository-relative paths; the caller thinks in paths relative
+    to the directory they pointed at. Translate, or a scoped run silently ranks
+    nothing."""
+    lead = prefix + "/" if prefix else ""
+    out = []
+    for f in files:
+        if lead:
+            if not f.startswith(lead):
+                continue
+            f = f[len(lead):]
+        if includes and not any(f.startswith(i.strip("/")) for i in includes):
+            continue
+        out.append(f)
+    return out
 
 
 def main() -> int:
@@ -98,13 +109,14 @@ def main() -> int:
         print("error: no commits in window; widen --months", file=sys.stderr)
         return 1
 
+    prefix = repo_prefix(root)
     reverts, alignments, reasoned = [], [], []
     fix_count: Counter = Counter()
     touch_count: Counter = Counter()
     authors_per_file: dict[str, set] = defaultdict(set)
 
     for sha, ts, author, subject, body, files in commits:
-        sfiles = scoped(files, args.include)
+        sfiles = scoped(files, args.include, prefix)
         for f in sfiles:
             touch_count[f] += 1
             authors_per_file[f].add(author)
@@ -127,7 +139,7 @@ def main() -> int:
 
     out = [f"# History — {root}", "",
            f"- window: last {args.months} months, {len(commits)} commits parsed",
-           f"- scope for ranking: {', '.join(args.include) if args.include else 'whole repo'}"]
+           f"- scope for ranking: {', '.join(args.include) if args.include else (prefix + '/' if prefix else 'whole repo')}"]
 
     out.append(section("REVERTS — negative knowledge"))
     out.append("Each one is a hypothesis the team tested in production. `git show <sha>` on the "

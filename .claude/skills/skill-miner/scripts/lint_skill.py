@@ -162,7 +162,13 @@ def check_body(body: str, skill_dir: Path, r: Report, max_lines: int) -> None:
             r.warn(f"a {n}-line code block sits in the body — shape belongs in assets/ as a real "
                    f"file that can be copied, formatted and linted")
 
-    for m in re.finditer(r"(?im)^\s*[>*\-]?\s*\**(don'?t|never|do not)\b(.{0,160})", body):
+    # Unwrap first: a prohibition and its reason are usually on different lines,
+    # and scanning line-by-line reports every wrapped rule as reasonless. Drop
+    # blockquote markers before joining — tripwires are written as blockquotes,
+    # so treating `>` as a line start excluded the very case this checks.
+    dequoted = re.sub(r"(?m)^\s*>\s?", "", body)
+    unwrapped = re.sub(r"\n(?=[^\s*\-#|\n])", " ", dequoted)
+    for m in re.finditer(r"(?im)^\s*[>*\-]?\s*\**(don'?t|never|do not)\b(.{0,220})", unwrapped):
         seg = m.group(0)
         if not re.search(r"(?i)because|—|--|\(|reverted|caused|broke|instead", seg):
             r.warn(f"prohibition with no reason: {seg.strip()[:80]!r} — a rule without a "

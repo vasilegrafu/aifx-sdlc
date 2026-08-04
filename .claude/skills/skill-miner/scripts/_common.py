@@ -122,8 +122,29 @@ def has_git(root: Path) -> bool:
 _HISTORY_CACHE: dict[tuple[str, int], dict[str, dict]] = {}
 
 
+def repo_prefix(root: Path) -> str:
+    """Where `root` sits inside its repository, as a posix prefix ('' at the top).
+
+    `git log` always prints paths relative to the repository root, whatever
+    directory it was run from. Scanning a subdirectory therefore produces keys
+    that match nothing, and every candidate comes back undated while the report
+    still says dating worked — a silent wrong answer, which is worse than a
+    loud missing one.
+    """
+    top = git(root, "rev-parse", "--show-toplevel")
+    if not top:
+        return ""
+    try:
+        return root.resolve().relative_to(Path(top.strip()).resolve()).as_posix().strip("./")
+    except ValueError:
+        return ""
+
+
 def file_history(root: Path, max_commits: int = 20000) -> dict[str, dict]:
     """path -> {"last": ts, "first": ts, "authors": set, "recent_authors": set}.
+
+    Keys are relative to `root`, not to the repository root, so they line up
+    with what `walk()` yields even when scanning a subdirectory.
 
     One `git log` pass for every dating and authorship question, cached: on a
     large repo a per-file version takes minutes and this takes seconds.
@@ -142,6 +163,9 @@ def file_history(root: Path, max_commits: int = 20000) -> dict[str, dict]:
         _HISTORY_CACHE[key] = hist
         return hist
 
+    prefix = repo_prefix(root)
+    lead = prefix + "/" if prefix else ""
+
     import time as _time
     year_ago = _time.time() - 365 * DAY
     ts, author = 0, ""
@@ -154,7 +178,12 @@ def file_history(root: Path, max_commits: int = 20000) -> dict[str, dict]:
             except ValueError:
                 ts = 0
         elif line.strip():
-            rec = hist.setdefault(line.strip(),
+            path = line.strip()
+            if lead:
+                if not path.startswith(lead):
+                    continue          # outside the scanned subtree
+                path = path[len(lead):]
+            rec = hist.setdefault(path,
                                   {"last": ts, "first": ts, "authors": set(), "recent_authors": set()})
             rec["first"] = ts          # log is newest-first: the last write wins
             rec["authors"].add(author)

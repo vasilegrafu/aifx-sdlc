@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import difflib
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -58,10 +59,19 @@ def load_items(skill_dir: Path) -> tuple[list[dict], list[str]]:
     return items, problems
 
 
+SHA_RE = re.compile(r"^[0-9a-f]{7,40}$", re.I)
+
+
 def commit_alive(root: Path, sha: str) -> str:
-    """Is the cited commit still reachable, and was it reverted since?"""
-    if not sha or len(sha) < 6:
-        return "no sha"
+    """Is the cited commit still reachable, and was it reverted since?
+
+    Only hex-looking pointers are treated as commits. A `Reasoned` pointer is
+    just as often an ADR path or a quoted comment, and running those through
+    `cat-file` reports every one of them as missing evidence — a false alarm
+    that trains the reader to ignore the column.
+    """
+    if not sha or not SHA_RE.match(sha):
+        return "not a sha"
     if git(root, "cat-file", "-e", f"{sha}^{{commit}}") is None:
         return "missing"
     log = git(root, "log", "--format=%s%n%b", f"{sha}..HEAD", "--grep", sha[:8]) or ""

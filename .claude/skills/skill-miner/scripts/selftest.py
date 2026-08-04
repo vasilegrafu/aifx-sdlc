@@ -176,6 +176,14 @@ def main() -> int:
         check(not any("planted block" in b["key"] for b in blocks),
               "comment prose stays out of the block signal")
 
+        # scanning a subdirectory: git prints repository-relative paths, so the
+        # keys must be rebased or every candidate comes back silently undated
+        code, out = run("conventions.py", str(repo / "src"), "--json", "--min-files", "3")
+        sub = json.loads(out) if code == 0 else {}
+        dated = [s for s in sub.get("slice", []) if s["verdict"] != "UNDATED" and s["authors"]]
+        check(bool(dated), "conventions dates candidates when scanning below the git root",
+              "git log paths are repo-relative; scanning a subdirectory must rebase them")
+
         # ----------------------------------------------------------- graph
         code, out = run("graph.py", r, "--json", "--depth", "2")
         graph = json.loads(out) if code == 0 else {}

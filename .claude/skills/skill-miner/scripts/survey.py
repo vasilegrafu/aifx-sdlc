@@ -128,10 +128,14 @@ def main() -> int:
             (cold if median > 365 else live).append(row)
         cold.sort(key=lambda r: -r[2])
         live.sort(key=lambda r: -r[1])
-        first = (git(root, "log", "--reverse", "--format=%as", "--max-count=1") or "").strip()
-        last = (git(root, "log", "--format=%as", "--max-count=1") or "").strip()
+        # `log --reverse --max-count=1` returns the NEWEST commit: git limits
+        # first and reverses after, so it reports a one-day-old repository for
+        # every repository. Root commits are the honest way to date the start.
+        roots = (git(root, "log", "--max-parents=0", "--format=%as") or "").split()
+        first = sorted(roots)[0] if roots else "?"
+        last = (git(root, "log", "--format=%as", "--max-count=1") or "?").strip()
         count = (git(root, "rev-list", "--count", "HEAD") or "?").strip()
-        git_summary = f"{count} commits, {first.splitlines()[0] if first else '?'} to {last or '?'}"
+        git_summary = f"{count} commits, {first} to {last}"
 
     if args.json:
         emit(json.dumps({
