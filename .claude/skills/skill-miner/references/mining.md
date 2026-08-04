@@ -35,7 +35,7 @@ mine cold code, it encodes a past house style).
 
 ### 3. `conventions.py` — candidate shapes
 
-Three independent signals, each reported with spread (how many directories) and
+Four signals, each reported with spread (directories), **author spread**, and
 recency (share of files touched in the last year):
 
 - **Slice shape** — filename suffix sets that co-occur in a directory
@@ -45,11 +45,43 @@ recency (share of files touched in the last year):
   blocks, logger construction, license headers, module setup. Cheap, high-yield;
   a generated file with the wrong prologue reads as foreign immediately.
 - **Idiom** — normalised lines recurring across many files *and* many
-  directories. Spread across directories is what separates an idiom from one
-  author's habit.
+  directories.
+- **Block** — runs of consecutive lines repeated verbatim: the error wrapper,
+  the transaction dance, the bootstrap, the test setup. **This is the reusable
+  chunk.** Single lines rarely are. Matching is verbatim after normalisation, so
+  a chunk that differs by entity name between files will not appear here — that
+  is *shape*, and shape belongs in an exemplar.
+
+A long block repeated in many files is also a question worth asking a person:
+why was it never extracted? The answer is often the convention itself.
+
+**Author spread** is the strongest cheap signal git offers. Five authors means
+house style; one author means a habit that spread by copy-paste, and encoding it
+propagates one person's preferences as if the team had agreed. Below three
+authors in the repo the number says nothing, and the script says so.
 
 `LIVE` / `MIXED` / `FOSSIL` in the output is a recency verdict, not a
 deliberateness verdict. It tells you what to investigate, not what to encode.
+
+### 3b. `graph.py` — the conventions between files
+
+Two things no per-file signal can see, because every file looks fine on its own:
+
+- **Layering** — who imports whom, as dominant direction per directory pair.
+  `ONE WAY` is encodable as a rule. `DOMINANT` means the minority edges are
+  either sanctioned exceptions (name them) or the migration in progress (encode
+  the destination). `TANGLED` means there is no direction to encode — inventing
+  one produces a rule the team will argue with.
+- **Wiring** — the registries a new artifact must be added to: barrels, route
+  tables, module indexes, DI containers, ranked by how many siblings each file
+  names. A generated artifact that is perfect and unregistered compiles, reviews
+  clean, and does nothing. Nothing else in the pipeline catches this, and no
+  amount of reading one exemplar reveals it.
+
+Import extraction is regex-based and resolves relative paths exactly; package
+imports match by unique directory suffix, and ambiguous ones are left
+unresolved. Missing an edge is better than inventing a dependency direction the
+team never had.
 
 ### 4. `history.py` — where the reasoning is
 
@@ -76,6 +108,28 @@ constraints* ("must stay under X ms", "must not depend on Y") > *stated
 preferences* > *aspirations*. Aspirations are worth nothing — a document
 describing how the team wishes it built things is not evidence about how it
 does, and the code will contradict it.
+
+### 5b. `interview.py` — the questions no artifact answers
+
+Every other script reads artifacts. The knowledge that most changes what gets
+encoded is often in nobody's artifact: why the obvious approach was rejected,
+which of two live patterns won, what the real constraint was.
+
+The script turns the *gaps* the other scripts found into specific questions —
+"these two patterns both look live and contradict, which wins?", "this
+five-line block is repeated in 111 files, is that deliberate?" — ranked by how
+much the answer changes the encoding. Specificity is the whole trick: "tell me
+about your codebase" returns nothing usable, and a question with two named
+candidates and their file counts gets answered in one line.
+
+Record each answer as **Confirmed** evidence with the person's name and the
+date, and carry it into `provenance.jsonl`. Confirmed evidence is the only class
+that expires: `drift.py` raises it again once it ages past `--stale-days`,
+because the person may have left and the reason may have lapsed.
+
+Confirmed still needs a second class unless someone can point at enforcement.
+An answer nobody can corroborate is a strong hypothesis, not a settled
+convention.
 
 ### 6. Only now, source files
 
@@ -124,6 +178,25 @@ to decide and say so.
 The refusal case matters. A skill that confidently encodes the losing side of a
 live argument will be fought by every reviewer on the team, and you will not
 find out until someone silently stops using it.
+
+## Degraded modes
+
+The evidence framework assumes a repo with history, tests and documents. Plenty
+of repos have none of that. Say which mode you are in, in the ledger, because it
+changes how much the resulting skill can be trusted.
+
+| What is missing | What you lose | What to lean on |
+|---|---|---|
+| **No git history** (fresh import, squashed monorepo) | Repaired, Recent, author spread — most of Stage 1 | enforcement config, and the interview. Here the interview is not a supplement, it is the evidence |
+| **Squashed merges only** | reverts and fix-density; commit bodies survive | the bodies of those squashed commits are unusually long and unusually informative |
+| **No tests** | the test half of every exemplar, and one Enforced source | say so in the skill rather than inventing a test convention |
+| **No ADRs, no PR text** | Reasoned, almost entirely | long commit bodies, code comments that say "not X because Y", and asking |
+| **No one to ask** | Confirmed | contradictions cannot be resolved: record them as open rather than guessing |
+| **Solo repo** | author spread says nothing | enforcement and repairs; a solo author's habits *are* the house style, which makes the accident test the main filter |
+
+The failure mode to avoid is silently proceeding as if the evidence were there.
+A skill built from one available class is a hypothesis; label it as one, and
+lean harder on Stage 4, which does not care where the knowledge came from.
 
 ## Scoping to named directories
 

@@ -82,7 +82,7 @@ def main() -> int:
     ap.add_argument("--months", type=int, default=24)
     ap.add_argument("--max-commits", type=int, default=8000)
     ap.add_argument("--top", type=int, default=15)
-    ap.add_argument("--md", action="store_true")
+    ap.add_argument("--md", action="store_true", help="markdown report (the default)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -113,10 +113,17 @@ def main() -> int:
         if FIX_RE.search(subject):
             for f in sfiles:
                 fix_count[f] += 1
-        if ALIGN_RE.search(subject) and len(files) >= 4:
+        if ALIGN_RE.search(subject) and len(files) >= 3:
             alignments.append((sha[:10], subject[:90], len(files)))
         if len(body.splitlines()) >= 5:
             reasoned.append((sha[:10], subject[:80], len(body.splitlines()), len(files)))
+
+    if args.json:
+        emit(json.dumps({"reverts": reverts[:args.top], "alignments": alignments[:args.top],
+                         "fix_density": fix_count.most_common(args.top),
+                         "reasoned": reasoned[:args.top],
+                         "churn": touch_count.most_common(args.top)}, indent=2))
+        return 0
 
     out = [f"# History — {root}", "",
            f"- window: last {args.months} months, {len(commits)} commits parsed",
@@ -151,12 +158,6 @@ def main() -> int:
     out.append(section("Churn"))
     out.append(table(["file", "commits", "authors"],
                      [[f, n, len(authors_per_file[f])] for f, n in touch_count.most_common(args.top)]))
-
-    if args.json:
-        emit(json.dumps({"reverts": reverts[:args.top], "alignments": alignments[:args.top],
-                         "fix_density": fix_count.most_common(args.top),
-                         "reasoned": reasoned[:args.top]}, indent=2))
-        return 0
 
     out.append("\n---\nRead the top reverts and the top fix-density files in full before "
                "writing a single ledger row.\n")

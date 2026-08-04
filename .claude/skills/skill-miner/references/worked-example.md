@@ -12,16 +12,35 @@ The stack here is incidental (a TypeScript service repo); the shape is not.
 
 ## Stage 1 output (ledger extract)
 
-| # | Claim | Example | Enf | Rep | Rea | Rec | Accident test | Survives |
-|---|---|---|---|---|---|---|---|---|
-| 1 | Every handler returns `Result<T, AppError>`; nothing throws across a module boundary | `services/orders/create.ts:14` | ✓ (lint rule `no-throw-boundary`) | ✓ `a91f3c` | ✓ ADR-014 | ✓ | callers stop compiling | yes |
-| 2 | Repos take a `Tx` as first arg, never open their own transaction | `services/orders/repo.ts:22` | – | ✓ `77c0aa` | ✓ PR #812 | ✓ | nothing breaks; double-commit under load | yes |
-| 3 | Files ordered: types, then the exported factory, then helpers | many | – | – | – | ✓ | nobody notices | **no — fossil** |
-| 4 | `zod` schemas live beside the handler, not in a shared `schemas/` | `services/orders/create.ts:1` | – | ✓ `2b40de` | – | ✓ | nothing breaks; drift | yes |
+| # | Claim | Example | Authors | Enf | Rep | Rea | Con | Rec | Accident test | Survives |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | Every handler returns `Result<T, AppError>`; nothing throws across a module boundary | `services/orders/create.ts:14` | 7 of 9 | ✓ lint `no-throw-boundary` | ✓ `a91f3c` | ✓ ADR-014 | – | ✓ | callers stop compiling | yes |
+| 2 | Repos take a `Tx` as first arg, never open their own transaction | `services/orders/repo.ts:22` | 5 of 9 | – | ✓ `77c0aa` | ✓ PR #812 | – | ✓ | nothing breaks; double-commit under load | yes |
+| 3 | Files ordered: types, then the exported factory, then helpers | many | 9 of 9 | – | – | – | – | ✓ | nobody notices | **no — fossil** |
+| 4 | `zod` schemas live beside the handler, not in a shared `schemas/` | `services/orders/create.ts:1` | 4 of 9 | – | ✓ `2b40de` | – | ✓ A. Rivera 2026-08-04 | ✓ | nothing breaks; drift | yes |
+| 5 | Retries use `withRetry`, never a hand-rolled loop | `services/orders/gateway.ts:31` | **1 of 9** | – | – | – | – | ✓ | nothing breaks | **no — one author's habit** |
 
-Contradiction found: `services/legacy-billing` uses class-based controllers,
-everything since 2024-06 uses factory functions. Newest class-based file: 400
-days. Ruling: **encode factories, tripwire the classes.**
+Row 5 is what author spread is for: 18 files, all recent, and every one of them
+written by the same person. Without that column it looks like a convention.
+
+**Contradiction** (`conventions.py --contradictions`): `services/legacy-billing`
+uses class-based controllers, everything since 2024-06 uses factory functions.
+Newest class-based file: 400 days. Ruling: **encode factories, tripwire the
+classes.**
+
+**Layering** (`graph.py`): `services/* → packages/http` is ONE WAY, 340 edges.
+`packages/http → services/*` has 2 edges, both in `legacy-billing`. Encodable as
+a rule, with the exception named.
+
+**Wiring** (`graph.py`): `services/index.ts` names 34 of its 36 siblings. A new
+service that is not added there compiles, passes its own test, and never
+receives a request. Nothing in any exemplar reveals this.
+
+**Chunk** (`conventions.py` BLOCK): a 4-line request-context block is verbatim in
+31 handlers, by 6 authors. Asked about it in the interview — deliberate, because
+extracting it would hide the request id from the stack trace. That answer became
+a `Confirmed` row, and the chunk went into the exemplar with a "reproduce
+verbatim" note.
 
 ## Stage 2 output (charter extract)
 
@@ -109,6 +128,23 @@ the specification of what varies.
   for now. A second reverted commit on cache handles would settle it.
 ```
 
+## The provenance that shipped with it
+
+`references/provenance.jsonl`, one line per rule — written while encoding, not
+afterwards:
+
+```json
+{"id":"result-not-throw","claim":"Handlers return Result<T, AppError>; nothing throws across a module boundary.","form":"prose","where":"SKILL.md#rules","evidence":[{"class":"Enforced","pointer":"eslint no-throw-boundary"},{"class":"Reasoned","pointer":"docs/adr/014-result-types.md"}],"source":{"repo":"acme/platform","path":"services/orders/create.ts","sha":"a91f3c2","line":14},"mined":"2026-08-04","note":"Retire if the lint rule is removed."}
+{"id":"schema-colocated","claim":"zod schemas live beside the handler, never in a shared schemas/ directory.","form":"exemplar","where":"assets/create-order.handler.ts","evidence":[{"class":"Repaired","pointer":"2b40de9"},{"class":"Confirmed","pointer":"team lead, weekly sync"}],"source":{"repo":"acme/platform","path":"services/orders/create.ts","sha":"2b40de9","line":1},"mined":"2026-08-04","confirmed_by":"A. Rivera","confirmed_on":"2026-08-04","note":"No enforcement; drifts if nobody watches."}
+{"id":"register-in-index","claim":"A new service must be exported from services/index.ts or it never receives a request.","form":"prose","where":"SKILL.md#before-youre-done","evidence":[{"class":"Enforced","pointer":"scripts/check_registered.py"},{"class":"Recent","pointer":"all 36 services"}],"source":{"repo":"acme/platform","path":"services/index.ts","sha":"c17bb90"},"mined":"2026-08-04"}
+```
+
+Six months later `drift.py` reported `schema-colocated` as **STALE** (the
+confirmation had aged out) and `result-not-throw` as **DRIFTED** (the exemplar
+was 71% of the current file). Both took an afternoon to resolve. Neither would
+have been noticed by reading the skill, which still read as convincing as the
+day it was written.
+
 ## What went where, and why
 
 | Item | Location | Why not somewhere else |
@@ -121,6 +157,8 @@ the specification of what varies.
 | the full list of rejected approaches | `references/rejected.md` | true, occasionally needed, would crowd out the payload |
 | ADR-014's full argument | `references/adr-014-summary.md` | loaded only when someone challenges the rule |
 | regeneration log | `references/regressions.md` | the test suite for next quarter's re-run |
+| every rule's evidence and source sha | `references/provenance.jsonl` | a script reads it; a file only humans read rots |
+| the registry a new service must be added to | body prose **and** `scripts/check_registered.py` | the failure is silent, so it is the one most worth automating |
 
 ## Stage 4 result
 
@@ -133,3 +171,11 @@ Target: `services/refunds` (created 6 weeks ago, ticket PLAT-2210 available).
   exemplar file), and used `throw` in one branch (rule present but buried at line
   310 → moved into the Rules block).
 - Second target `services/notifications`: no new meaningful divergences. Stop.
+
+Then the two questions Stage 4 does not answer:
+
+- `coverage.py` — of 6 live artifact types, 1 covered. Top uncovered row:
+  `*.migration.ts`, 41 files, 7 authors. That is skill #2, and it was picked by
+  the script rather than by whoever felt strongest about it.
+- `drift.py` — clean on the day of mining, by construction. Scheduled quarterly;
+  its first non-clean run is above.

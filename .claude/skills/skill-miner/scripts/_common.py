@@ -12,6 +12,11 @@ import sys
 import time
 from pathlib import Path
 
+# Dot-directories are skipped, except these: enforcement config lives in them,
+# and a convention a machine rejects is the cheapest evidence there is.
+KEEP_DOTDIRS = {".github", ".gitlab", ".circleci", ".buildkite", ".husky",
+                ".azure-pipelines", ".claude", ".config", ".changeset"}
+
 IGNORED_DIRS = {
     ".git", ".hg", ".svn", ".venv", "venv", "env", "node_modules", "__pycache__",
     ".mypy_cache", ".pytest_cache", ".ruff_cache", ".tox", ".gradle", ".idea",
@@ -58,7 +63,7 @@ def walk(root: Path, includes=None, max_bytes: int = MAX_BYTES):
         for dirpath, dirnames, filenames in os.walk(base):
             dirnames[:] = [
                 d for d in dirnames
-                if d not in IGNORED_DIRS and not d.startswith(".") or d in {".github", ".claude"}
+                if (d not in IGNORED_DIRS and not d.startswith(".")) or d in KEEP_DOTDIRS
             ]
             for name in filenames:
                 p = Path(dirpath) / name
@@ -114,46 +119,65 @@ def has_git(root: Path) -> bool:
     return git(root, "rev-parse", "--git-dir") is not None
 
 
-def last_touch_map(root: Path, max_commits: int = 20000) -> dict[str, int]:
-    """path -> unix timestamp of the most recent commit touching it.
+_HISTORY_CACHE: dict[tuple[str, int], dict[str, dict]] = {}
 
-    One `git log` pass, not one call per file: on a large repo the per-file
-    version takes minutes and this takes seconds.
+
+def file_history(root: Path, max_commits: int = 20000) -> dict[str, dict]:
+    """path -> {"last": ts, "first": ts, "authors": set, "recent_authors": set}.
+
+    One `git log` pass for every dating and authorship question, cached: on a
+    large repo a per-file version takes minutes and this takes seconds.
+
+    `recent_authors` are those who touched the file in the last year — the ones
+    whose habits are still shaping the codebase.
     """
+    key = (str(root), max_commits)
+    if key in _HISTORY_CACHE:
+        return _HISTORY_CACHE[key]
+
     out = git(root, "log", f"--max-count={max_commits}", "--no-merges",
-              "--name-only", "--format=%x01%at")
-    touched: dict[str, int] = {}
+              "--name-only", "--format=%x01%at%x02%an")
+    hist: dict[str, dict] = {}
     if not out:
-        return touched
-    ts = 0
+        _HISTORY_CACHE[key] = hist
+        return hist
+
+    import time as _time
+    year_ago = _time.time() - 365 * DAY
+    ts, author = 0, ""
     for line in out.splitlines():
         if line.startswith("\x01"):
+            head = line[1:]
+            tstr, _, author = head.partition("\x02")
             try:
-                ts = int(line[1:])
+                ts = int(tstr)
             except ValueError:
                 ts = 0
         elif line.strip():
-            touched.setdefault(line.strip(), ts)  # log is newest-first
-    return touched
+            rec = hist.setdefault(line.strip(),
+                                  {"last": ts, "first": ts, "authors": set(), "recent_authors": set()})
+            rec["first"] = ts          # log is newest-first: the last write wins
+            rec["authors"].add(author)
+            if ts >= year_ago:
+                rec["recent_authors"].add(author)
+    _HISTORY_CACHE[key] = hist
+    return hist
+
+
+def last_touch_map(root: Path, max_commits: int = 20000) -> dict[str, int]:
+    return {p: r["last"] for p, r in file_history(root, max_commits).items()}
 
 
 def first_touch_map(root: Path, max_commits: int = 20000) -> dict[str, int]:
-    """path -> unix timestamp of the oldest commit touching it, in this window."""
-    out = git(root, "log", f"--max-count={max_commits}", "--no-merges",
-              "--name-only", "--format=%x01%at")
-    first: dict[str, int] = {}
-    if not out:
-        return first
-    ts = 0
-    for line in out.splitlines():
-        if line.startswith("\x01"):
-            try:
-                ts = int(line[1:])
-            except ValueError:
-                ts = 0
-        elif line.strip():
-            first[line.strip()] = ts  # keep overwriting: last seen is oldest
-    return first
+    return {p: r["first"] for p, r in file_history(root, max_commits).items()}
+
+
+def repo_authors(root: Path, max_commits: int = 20000) -> set[str]:
+    """Every author in the window. One name means author spread says nothing."""
+    out: set[str] = set()
+    for rec in file_history(root, max_commits).values():
+        out |= rec["authors"]
+    return out
 
 
 def age_days(ts: int, now: float | None = None) -> float:

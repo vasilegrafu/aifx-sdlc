@@ -54,8 +54,25 @@ NOT_A_DECL = {"if", "for", "while", "switch", "catch", "return", "with", "using"
               "match", "when", "do", "else", "try", "foreach", "lock"}
 
 
-def normalise(path: Path, cmd: str | None, workdir: Path) -> Path:
-    """Copy into a temp dir and optionally run the repo's formatter over the copy."""
+LINE_COMMENT = re.compile(r"^\s*(#|//|--|\*|/\*|<!--)")
+
+
+def builtin_normalise(text: str) -> str:
+    """Fallback when the repo has no formatter: drop blank lines, comments and
+    indentation. Crude, and still better than diffing raw — comment wording and
+    whitespace are the two things a divergence is never about."""
+    out = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or LINE_COMMENT.match(line):
+            continue
+        out.append(re.sub(r"\s+", " ", s))
+    return "\n".join(out)
+
+
+def normalise(path: Path, cmd: str | None, workdir: Path, builtin: bool = False) -> Path:
+    """Copy into a temp dir and normalise the copy — the repo's own formatter if
+    one was given, otherwise nothing (or the crude built-in, on request)."""
     dest = workdir / f"{path.stem}__{abs(hash(str(path))) % 10000}{path.suffix}"
     shutil.copyfile(path, dest)
     if cmd:
@@ -67,6 +84,8 @@ def normalise(path: Path, cmd: str | None, workdir: Path) -> Path:
                       f"{(proc.stderr or proc.stdout).strip()[:200]}", file=sys.stderr)
         except (OSError, subprocess.SubprocessError) as exc:
             print(f"warning: normalise could not run: {exc}", file=sys.stderr)
+    elif builtin:
+        dest.write_text(builtin_normalise(read_text(dest)), encoding="utf-8")
     return dest
 
 
@@ -110,6 +129,11 @@ def verdict(sim_ob: float | None, sim_os: float, sim_bs: float | None) -> tuple[
         return ("NO BASELINE",
                 "Without a baseline arm you cannot tell a wrong skill from a silent one. "
                 "Generate the no-skill version and re-run.")
+    if sim_ob >= 92:
+        return ("NO DELTA",
+                "The no-skill baseline already matched the original, so this target proves "
+                "nothing about the skill either way. Pick a harder target — one whose "
+                "conventions a stranger would not have guessed.")
     if sim_bs >= 92:
         return ("NOT FIRING",
                 "Skilled output is nearly identical to the no-skill baseline. Fix the "
@@ -138,6 +162,8 @@ def main() -> int:
                          "distinguish a wrong skill from one that never loaded")
     ap.add_argument("--normalize-cmd", default=None,
                     help='e.g. "npx prettier --write {file}" or "ruff format {file}"')
+    ap.add_argument("--normalize-builtin", action="store_true",
+                    help="no formatter in this repo: strip comments, blank lines and indentation")
     ap.add_argument("--full-diff", action="store_true", help="print the raw unified diffs")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
@@ -149,9 +175,10 @@ def main() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        o = normalise(args.original, args.normalize_cmd, work)
-        s = normalise(args.skilled, args.normalize_cmd, work)
-        b = normalise(args.baseline, args.normalize_cmd, work) if args.baseline else None
+        bi = args.normalize_builtin
+        o = normalise(args.original, args.normalize_cmd, work, bi)
+        s = normalise(args.skilled, args.normalize_cmd, work, bi)
+        b = normalise(args.baseline, args.normalize_cmd, work, bi) if args.baseline else None
 
         lo, ls = lines_of(o), lines_of(s)
         lb = lines_of(b) if b else None
@@ -181,7 +208,7 @@ def main() -> int:
             return 0
 
         out = [f"# Regeneration diff — {args.original.name}", "",
-               f"- normalisation: `{args.normalize_cmd or 'NONE — expect whitespace noise'}`",
+               f"- normalisation: `{args.normalize_cmd or ('built-in (comments, blanks, indentation)' if bi else 'NONE — expect whitespace noise')}`",
                f"- lines: original {len(lo)}, skilled {len(ls)}"
                + (f", baseline {len(lb)}" if lb is not None else ""), "",
                "## Similarity", "",
@@ -195,10 +222,10 @@ def main() -> int:
                "In the skilled output, absent from the original:",
                ("\n".join(f"- `{d}`" for d in extra[:40]) or "- _none_"), "",
                "## Next", "",
-               "Read each divergence against the rubric in `references/validating.md`: it is "
+               "Read each divergence against the rubric in the miner's `references/validating.md`: it is "
                "meaningful only if it changes the public surface, placement or naming, failure "
                "behaviour, a cross-cutting ceremony, or test shape. Map each survivor through "
-               "the divergence→edit table, then log the run in `references/regressions.md`.",
+               "the divergence→edit table, then log the run in `<skill>/references/regressions.md`.",
                "", "Percentages are for tracking movement between runs, not a score. A run that "
                "improves similarity while breaking the public surface has gotten worse."]
 

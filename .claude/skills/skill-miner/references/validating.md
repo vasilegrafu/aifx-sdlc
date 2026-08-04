@@ -50,6 +50,10 @@ Run the repo's own formatter and autofixer over all three files first
 unnormalised diffs are 80% noise — which is how validation sessions turn into
 whitespace archaeology and get abandoned.
 
+If the repo has no formatter, `--normalize-builtin` strips comments, blank lines
+and indentation. It is cruder and it is still worth it: comment wording and
+whitespace are the two things a real divergence is never about.
+
 ```bash
 ./.venv/Scripts/python.exe .claude/skills/skill-miner/scripts/regen_diff.py \
   --original src/orders/order.service.ts \
@@ -94,6 +98,7 @@ functions, and how much gets inlined.
 
 | Reading | Diagnosis | Fix |
 |---|---|---|
+| baseline ≈ original (before anything else) | **no delta** | the target proves nothing — a stranger already produced it. Pick a harder target; if every target reads this way, the skill may have nothing to encode |
 | skilled ≈ baseline (high similarity, same divergences) | **not firing** | rewrite the description; check whether the rule sits below the attention budget; check name/frontmatter validity |
 | skilled ≠ baseline, but no closer to original | **firing, wrong** | the rule is mis-stated, its decision key is not observable, or the exemplar shows the wrong thing |
 | skilled closer, specific gaps remain | **firing, incomplete** | additive edits only |
@@ -127,6 +132,48 @@ Also stop, temporarily, when the same divergence resists three edit attempts.
 That item is either unencodable in prose (make it a script), or actually a
 contradiction in the source repo that Stage 1 missed. Go back and date both
 sides rather than escalating the wording.
+
+## Two questions Stage 4 does not answer
+
+Regeneration tells you whether *this skill* is right. It says nothing about
+whether the set is complete, or whether either is still true next quarter.
+
+### Is the set complete? — `coverage.py`
+
+```bash
+python coverage.py <repo> --skills <skills-dir>
+```
+
+Lists the repo's live artifact types against the skills that name them, ranked
+by how much live code each uncovered type represents. The top uncovered row is
+the next skill to build — unless nobody would ever ask for it, which is a
+legitimate answer and worth writing down so the row stops coming back.
+
+Matching is lexical, deliberately: a type counts as covered when a skill *names*
+it, which is the same condition as the skill triggering at all. A skill that
+covers migrations without ever using the word does not, in practice, cover them.
+
+### Is it still true? — `drift.py`
+
+```bash
+python drift.py <skill-dir> --source <repo>
+```
+
+Skills rot silently and read exactly as convincing on the day they stop being
+right. Against the recorded provenance it reports:
+
+- **GONE** — the source file is deleted. The rule may have been retired with it;
+  check before re-copying anything.
+- **DRIFTED** — the source changed materially since the exemplar was copied.
+  Re-copy, then re-run Stage 4: the divergence you get is the codebase moving,
+  not the skill being wrong.
+- **EVIDENCE?** — the cited commit is missing or was itself reverted. The
+  argument behind the rule may no longer hold.
+- **STALE** — a `Confirmed` item has aged past `--stale-days`. Ask again; the
+  person may have left and the constraint may have lapsed.
+
+Exit code 1 on GONE or DRIFTED, so it can gate a scheduled run. The natural
+cadence is quarterly, or whenever generated code starts looking subtly foreign.
 
 ## The regression record
 

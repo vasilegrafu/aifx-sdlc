@@ -37,6 +37,9 @@ ENFORCEMENT = (
     "clippy.toml", "checkstyle", ".rubocop.yml", "phpstan", "sonar-project",
 )
 
+ENFORCEMENT_DIRS = ("/.github/workflows/", "/.circleci/", "/.husky/", "/.buildkite/",
+                    "/.gitlab/", "/.azure-pipelines/", "/.changeset/")
+
 REASONING_DIRS = ("adr", "adrs", "decisions", "rfc", "rfcs", "docs", "runbook",
                   "runbooks", "playbook", "playbooks")
 
@@ -54,7 +57,7 @@ def main() -> int:
     ap.add_argument("--include", action="append", default=None,
                     help="limit to this path (repeatable); root enforcement config is listed anyway")
     ap.add_argument("--depth", type=int, default=2, help="directory rollup depth")
-    ap.add_argument("--md", action="store_true", help="markdown report (default)")
+    ap.add_argument("--md", action="store_true", help="markdown report (the default)")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
@@ -91,7 +94,9 @@ def main() -> int:
             name = path.name
             if name in MANIFESTS:
                 manifests.append((r, MANIFESTS[name]))
-            if any(k in name for k in ENFORCEMENT) or "/.github/workflows/" in "/" + r:
+            # match on the name (.eslintrc) or on the directory (.circleci/config.yml):
+            # half of all enforcement lives in a dot-directory, not in a known filename
+            if any(k in name for k in ENFORCEMENT) or any(d in "/" + r for d in ENFORCEMENT_DIRS):
                 enforcement.append(r)
             low = "/" + r.lower()
             if any(f"/{d}/" in low for d in REASONING_DIRS):

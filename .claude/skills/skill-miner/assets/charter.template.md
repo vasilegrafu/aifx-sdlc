@@ -23,10 +23,13 @@ Not this skill's job: <the neighbouring artifact that will be its own skill>.
 
 ## Survivors
 
-| # | Item | Quadrant | Quirk/Principle | Form | Where |
-|---|---|---|---|---|---|
-| 1 | <one sentence> | non-obvious/silent | quirk | exemplar | `assets/<f>` |
-| 2 |  |  |  |  |  |
+| # | provenance id | Item | Quadrant | Quirk/Principle | Form | Where |
+|---|---|---|---|---|---|---|
+| 1 | `<kebab-id>` | <one sentence> | non-obvious/silent | quirk | exemplar | `assets/<f>` |
+| 2 |  |  |  |  |  |  |
+
+Every row here becomes one line of `references/provenance.jsonl`. Ids are stable
+and never reused — `drift.py` reports against them.
 
 Forms: exemplar · prose · decision-row · script · reference · dropped.
 
@@ -53,6 +56,12 @@ Pairs differ along: <the one axis of variation they demonstrate>.
 |  |  |  |
 
 Default row: <which>. Escape hatch wording: <…>.
+
+## Wiring to state in the body
+
+| New artifact must be added to | Silent failure if forgotten | Scripted check? |
+|---|---|---|
+| `<registry path>` | <what breaks> | yes/no |
 
 ## Scripts
 

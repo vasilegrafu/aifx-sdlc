@@ -28,6 +28,25 @@ been destroyed by reading the answer.
 3. Generate it with no skill loaded, no repo access.
 4. Diff against the real file.
 
+### How to actually run step 3
+
+The two constraints are *no skill* and *no repo*, and the second is the one
+people get wrong: a generator that can read the repo will copy the neighbouring
+file, produce a perfect result, and tell you there is no delta to encode.
+
+- **Fresh session, empty directory** (default). Start a session in
+  `.mining/<ws>/baseline/`, which contains nothing. Paste the reconstructed
+  prompt. Save the output there. Nothing in that directory can leak the answer.
+- **Restricted subagent** (faster, same session). Launch one with no read access
+  to the source repo and no skills loaded, and have it write into `baseline/`.
+  Using a subagent as a measuring instrument is not building an agent
+  architecture — it is a test harness, and it disappears with the run.
+- **What does not work**: asking the same session to "pretend you have not read
+  the repo". It has, and the output will show it.
+
+Keep the prompt file next to the output. Stage 4 reuses both, and next
+quarter's re-run needs them to mean anything.
+
 What the baseline got right is not delta, no matter how clever it felt when you
 found it in the code. What it got wrong is a candidate. What it got wrong
 *silently* — code that runs and reads fine — is the payload.

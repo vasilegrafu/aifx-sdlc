@@ -32,6 +32,44 @@ the repo, which is the entire failure this pipeline exists to prevent.
    does not say "do not cache here".
 4. **Choice.** One sample shows one case. Generation needs the rule for picking.
 
+### How much to copy: file, or chunk
+
+Two units, and they are not interchangeable.
+
+- **Whole file** is the default for anything with a shape — a handler, a
+  service, a test. Shape is about the relationships between parts, and those
+  only survive if the parts arrive together.
+- **Chunk** — a run of lines repeated verbatim across files, which is what
+  `conventions.py` BLOCK finds: the bootstrap, the error wrapper, the
+  transaction dance. Ship these as a marked region inside an exemplar, or as a
+  template in `scripts/` if it is truly fixed. State that it must appear
+  verbatim, because a generator will otherwise paraphrase it into something
+  equivalent-looking and subtly different.
+
+The distinction is mechanical: **if it varies by entity name between real
+instances, it is shape (whole file); if it is identical across instances, it is
+a chunk.** A chunk pasted into prose gets reworded; a chunk in a file gets
+copied.
+
+### The placeholder problem
+
+An exemplar copied verbatim carries the domain nouns of whatever it was — the
+generator writes `OrderService` into a feature about invoices, which is the most
+recognisable symptom of a skill built this way.
+
+Do not solve it by rewriting the exemplar into something generic; that destroys
+the very texture you copied it for. Solve it in the notes file with an explicit
+mapping table (`assets/exemplar.notes.template.md`):
+
+| In the exemplar | Stands for |
+|---|---|
+| `Order`, `orders` | the entity |
+| `OrderService` | `<Entity>Service` |
+| `createOrder` | `<verb><Entity>` |
+
+Three rows are usually enough. The mapping is also what makes the exemplar
+readable a year later, when nobody remembers which parts were the example.
+
 ### The fix for (1): never ship one exemplar alone
 
 Either:
@@ -155,6 +193,42 @@ run:
 Lexical overlap is a proxy, not proof of triggering. Real proof is the Stage 4
 firing test: if the skilled generation matches the baseline, it did not load,
 whatever the linter said.
+
+## Wiring: the one thing an exemplar cannot show
+
+`graph.py` WIRING names the registries a new artifact must be added to — the
+barrel, the route table, the DI container. This never appears in an exemplar,
+because the exemplar *is* the new file and the edit happens somewhere else.
+
+State it as an imperative naming the exact path:
+
+> After creating the handler, add it to `src/handlers/index.ts`. Nothing else
+> will tell you: an unregistered handler compiles, passes its own test, and is
+> unreachable.
+
+Better still, make it a script: a check that fails when the new file is not
+referenced from the registry is deterministic, and this failure mode is the one
+most worth automating because nothing else catches it.
+
+## Provenance: write it as you go
+
+Every rule that lands in the skill gets a row in `references/provenance.jsonl` —
+its claim, its form, where it lives in the skill, its evidence classes with
+pointers, the source path and sha, and the date mined.
+
+This is not bookkeeping for its own sake. It buys three things nothing else
+provides:
+
+1. **Re-checkability.** In six months someone will challenge a rule. Without a
+   pointer, the argument is settled by whoever is most confident.
+2. **Drift detection.** `drift.py` reads exactly this file. No provenance, no
+   drift check, and the skill ages silently.
+3. **Expiry.** A `Confirmed` item carries a name and a date, so it can be
+   re-asked when the reason may have lapsed — or when that person has left.
+
+Write the row when you write the rule. Reconstructing provenance afterwards
+means re-deriving the evidence, which nobody does, which is why skills end up as
+folklore.
 
 ## Assembly checklist
 
