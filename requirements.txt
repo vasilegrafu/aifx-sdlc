@@ -4,8 +4,10 @@
 #   .venv\Scripts\activate        (Windows)   |   source .venv/bin/activate
 #   pip install -r requirements.txt
 #
-# One library so far: Jinja renders every template. Anything that reaches the
-# network gets added here the day it is written, not before -- a dependency
-# nothing imports is a dependency nobody maintains.
-
-jinja2>=3.1.4
+# Nothing yet. Every script here runs on the standard library, which is what
+# lets a skill be copied into another checkout and still work.
+#
+# Anything that reaches the network, or renders a template, gets added the day
+# something imports it -- not before. A dependency nothing imports is a
+# dependency nobody maintains, and jinja2 sat here proving that until it was
+# removed.

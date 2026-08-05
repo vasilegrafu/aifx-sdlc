@@ -5,11 +5,5 @@
         "**/__pycache__": true
     },
 
-    "explorer.fileNesting.enabled": true,
-    "explorer.fileNesting.expand": false,
-    "explorer.fileNesting.patterns": {
-        "config.*.json": "secrets.${capture}.json"
-    },
-
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
 }

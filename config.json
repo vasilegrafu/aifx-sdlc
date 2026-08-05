@@ -1,0 +1,11 @@
+{
+  "pyapp": {
+    "repositories": [
+      {
+        "name": "atlas",
+        "path": "D:/Dev.Work/project.finance/solution.atlas"
+      }
+    ],
+    "solution": "solution"
+  }
+}

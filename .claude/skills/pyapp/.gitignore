@@ -1,0 +1,5 @@
+# The skill's working data: structural indexes of other repositories, and the
+# decisions taken about them. Derived facts about someone else's code are still
+# their code -- and this directory sits inside a tracked skill, so without this
+# rule a blanket `git add .` would publish them.
+.data/

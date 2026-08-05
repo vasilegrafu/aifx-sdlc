@@ -3,8 +3,5 @@ __pycache__/
 
 .venv/
 
-secrets.*.json
 
 
-# mining workspaces: they hold code copied out of other repositories
-.mining/
