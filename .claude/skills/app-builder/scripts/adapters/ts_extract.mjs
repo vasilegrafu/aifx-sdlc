@@ -19,6 +19,9 @@ const files = input.files;
 const repo = input.repo;
 
 const rel = (p) => p.replace(/\\/g, '/').slice(root.replace(/\\/g, '/').length + 1);
+/** The compiler reads both; the record should say which it read. */
+const langOf = (p) => (/\.(m|c)?jsx?$/i.test(p) ? 'javascript' : 'typescript');
+
 const trunc = (s, n = 160) => {
   s = String(s ?? '').replace(/\s+/g, ' ').trim();
   return s.length <= n ? s : s.slice(0, n - 1) + '…';
@@ -121,7 +124,7 @@ function heritage(node, src) {
 }
 
 /** class, interface, and a type alias whose right-hand side is an object type. */
-function classRecord(node, src, mod) {
+function classRecord(node, src, mod, lang) {
   let members = node.members ?? [];
   if (ts.isTypeAliasDeclaration(node)) {
     members = ts.isTypeLiteralNode(node.type) ? node.type.members : [];
@@ -145,7 +148,7 @@ function classRecord(node, src, mod) {
   const kind = ts.isInterfaceDeclaration(node) ? 'interface'
     : ts.isTypeAliasDeclaration(node) ? 'type' : 'class';
   return {
-    k: 'class', lang: 'typescript', repo, path: mod.path,
+    k: 'class', lang, repo, path: mod.path,
     mtime: mod.mtime, commit: mod.commit,
     name: node.name?.getText?.(src) ?? '?',
     kind,
@@ -162,15 +165,27 @@ const isExported = (node) => modifierNames(node).includes('export')
   || (node.modifiers ?? []).some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
 
 const out = [];
+const minified = [];
 for (const entry of files) {
   const { path: absolute, mtime, commit } = entry;
   let source;
   try { source = readFileSync(absolute, 'utf8'); } catch (e) {
-    out.push({ k: 'unreadable', lang: 'typescript', repo, path: rel(absolute),
+    out.push({ k: 'unreadable', lang: langOf(absolute), repo, path: rel(absolute),
                error: String(e).slice(0, 200) });
     continue;
   }
   const relpath = rel(absolute);
+  const lang = langOf(absolute);
+
+  // Minified output parses perfectly and is not source. A published package
+  // ships bundles at its own root, where no directory rule can catch them, and
+  // indexing one reports a "convention" that a tool wrote.
+  const lines = source.split(/\r?\n/);
+  const longest = lines.reduce((m, l) => (l.length > m ? l.length : m), 0);
+  if (longest > 2000 || (lines.length < 5 && source.length > 20000)) {
+    minified.push(relpath);
+    continue;
+  }
   const src = ts.createSourceFile(absolute, source, ts.ScriptTarget.Latest, true);
 
   const imports = [], exports = [];
@@ -209,7 +224,7 @@ for (const entry of files) {
   }
 
   const mod = {
-    k: 'module', lang: 'typescript', repo, path: relpath,
+    k: 'module', lang, repo, path: relpath,
     pkg: relpath.replace(/\.(tsx?|jsx?)$/, '').replace(/\//g, '.'),
     dir: relpath.includes('/') ? relpath.slice(0, relpath.lastIndexOf('/')) : '',
     loc: source.split('\n').length,
@@ -224,18 +239,31 @@ for (const entry of files) {
     if (ts.isClassDeclaration(st) || ts.isInterfaceDeclaration(st)
         || ts.isTypeAliasDeclaration(st)) {
       if (ts.isTypeAliasDeclaration(st) && !ts.isTypeLiteralNode(st.type)) continue;
-      out.push(classRecord(st, src, mod));
+      out.push(classRecord(st, src, mod, lang));
     } else if (ts.isFunctionDeclaration(st) && st.name) {
       out.push({ ...methodRecord(st, src, st.name.text),
-                 k: 'func', lang: 'typescript', repo, path: relpath,
+                 k: 'func', lang, repo, path: relpath,
                  mtime, commit });
+    } else if (ts.isExportAssignment(st) && !st.isExportEquals) {
+      // `export default <fn>` -- a plugin, a middleware, a wrapped component.
+      // No name, so nothing recorded it before; what it calls is the whole
+      // convention, and that was invisible.
+      let expr = st.expression;
+      while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+      if (ts.isArrowFunction(expr) || ts.isFunctionExpression(expr)) {
+        out.push({ ...methodRecord(expr, src, expr.name?.text ?? 'default'),
+                   k: 'func', lang, repo, path: relpath, mtime, commit });
+      }
+    } else if (ts.isFunctionDeclaration(st) && !st.name) {
+      out.push({ ...methodRecord(st, src, 'default'),
+                 k: 'func', lang, repo, path: relpath, mtime, commit });
     } else if (ts.isVariableStatement(st)) {
       // `const Component = (props) => {...}` -- most React components live here
       for (const d of st.declarationList.declarations) {
         const init = d.initializer;
         if (init && (ts.isArrowFunction(init) || ts.isFunctionExpression(init))) {
           out.push({ ...methodRecord(init, src, d.name.getText(src)),
-                     k: 'func', lang: 'typescript', repo, path: relpath,
+                     k: 'func', lang, repo, path: relpath,
                      mtime, commit });
         }
       }
@@ -243,4 +271,8 @@ for (const entry of files) {
   }
 }
 
+if (minified.length) {
+  process.stderr.write(
+    `  skipped ${minified.length} minified file(s), e.g. ${minified[0]}\n`);
+}
 process.stdout.write(out.map((r) => JSON.stringify(r)).join('\n') + '\n');

@@ -12,14 +12,22 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import subprocess
 from pathlib import Path
 
 from _common import rel
 
-LANGUAGE = "typescript"
+LANGUAGE = "typescript"                       # the extractor's own name
+LANGUAGES = ("typescript", "javascript")      # what it may stamp on a record
 FIDELITY = "ast"
-EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts")
+EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+
+# One parser, two languages. The TypeScript compiler reads JavaScript, so a `.js`
+# file is extracted at the same fidelity -- but it is reported as JavaScript,
+# because `--lang javascript` returning nothing while JavaScript sits in the
+# index is a lie the reader has no way to catch. Expect ATTRIBUTE DETAIL to be
+# thin for it: with no annotations there is no modal form to report.
 
 ADAPTER = Path(__file__).resolve().parents[1] / "adapters" / "ts_extract.mjs"
 
@@ -99,12 +107,17 @@ def extract(files, root: Path, repo: str, commits=None, timeout: int = 300):
                    "error": f"adapter failed: {exc}"[:200]}
             continue
 
+        notes = [ln for ln in (proc.stderr or "").splitlines() if ln.strip()]
         if proc.returncode != 0:
-            tail = [ln for ln in (proc.stderr or "").strip().splitlines() if ln.strip()]
             yield {"k": "unparsed", "lang": LANGUAGE, "repo": repo, "path": "",
                    "error": f"adapter exited {proc.returncode}: "
-                            f"{tail[-1] if tail else 'no output'}"[:200]}
+                            f"{notes[-1] if notes else 'no output'}"[:200]}
             continue
+        # The adapter reports what it declined to read -- minified bundles, most
+        # often. Swallowing that would leave the index quietly short of files it
+        # was handed, which is the one thing an extractor must never do.
+        for note in notes:
+            print(note.rstrip(), file=sys.stderr)
 
         for line in proc.stdout.splitlines():
             line = line.strip()

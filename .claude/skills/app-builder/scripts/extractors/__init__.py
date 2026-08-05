@@ -9,9 +9,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import python, typescript
+from . import csharp, python, typescript
 
-REGISTRY = {m.LANGUAGE: m for m in (python, typescript)}
+REGISTRY = {m.LANGUAGE: m for m in (python, typescript, csharp)}
 
 BY_EXTENSION = {ext: m for m in REGISTRY.values() for ext in m.EXTENSIONS}
 

@@ -3,3 +3,7 @@
 # their code -- and this directory sits inside a tracked skill, so without this
 # rule a blanket `git add .` would publish them.
 .data/
+
+# The C# adapter is built on first use, not shipped.
+scripts/adapters/CsExtract/bin/
+scripts/adapters/CsExtract/obj/

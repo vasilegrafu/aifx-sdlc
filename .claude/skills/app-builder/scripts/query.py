@@ -152,6 +152,12 @@ LANGUAGES = {
         "barrel": "index.ts",
         "entry": "a script in package.json",
     },
+    "javascript": {
+        "proof_files": ("package.json", "jest.config.js", "vitest.config.js",
+                        "playwright.config.js", "eslint.config.js"),
+        "barrel": "index.js",
+        "entry": "a script in package.json",
+    },
     "csharp": {
         "proof_files": ("Directory.Build.props", "global.json", "nuget.config"),
         # C# has no re-export file: a namespace is visible without one, and the
@@ -527,7 +533,15 @@ def cmd_calls(args):
     for attr, sites in sorted(called.items(), key=lambda kv: -len(kv[1])):
         if attr not in missing:
             print(f"  ok       {attr:<28} {len(sites)} call site(s)")
-    if missing:
+    if missing and language_of(found_class) == "csharp":
+        print("\n== NOT RESOLVED ==")
+        print("   Advisory only. C# is read syntax-only, so an instance call is"
+              "\n   attributed to the variable it was made on, not to that variable's"
+              "\n   type -- and an extension method is declared outside the type"
+              "\n   entirely. Absence here is not evidence of a missing member.\n")
+        for attr, sites in sorted(missing.items(), key=lambda kv: -len(kv[1])):
+            print(f"  unresolved  {attr:<26} {len(sites)} call site(s)")
+    elif missing:
         print("\n== NOT DEFINED ==")
         print("   called, but no such member. These raise when the line runs, and"
               "\n   never before -- the file imports and every linter passes.\n")

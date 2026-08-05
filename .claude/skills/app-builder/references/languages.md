@@ -91,17 +91,33 @@ like three languages.
 shape of the generator, not of the codebase. Exclude it, or `shape` will report a
 contract nobody chose. Look for `.openapi-generator/` and similar markers.
 
-### C#
+### C# — implemented, syntax-only, and one query does not transfer
 
-**Extension methods make `calls` cry wolf.** `x.Where(...)` is defined on
-`Enumerable`, not on the type of `x`, so a naive called-but-not-defined check
-reports MISSING for the most idiomatic code in the language. Resolve them or
-exclude them — a check that fires on correct code is worse than no check, because
-it teaches the reader to skip the output.
+Roslyn parses; no compilation is built, because that would need every project
+restored and the structure of a layer is visible without it. That one choice is
+behind everything below.
 
-**Partial classes split one type across files.** `shape` counts classes; a type
-declared in three files counts three times and skews every percentage in the
-layer. Merge partials before emitting records.
+**`calls --on <TypeName>` mostly does not work, and the reason is bigger than
+extension methods.** Without a semantic model, the receiver of an instance call
+is a *variable name*, not a type. Across a real ASP.NET codebase the commonest
+receivers were `_userManager`, `_logger`, `_mockBasketRepo`, `builder` — fields
+and locals. So `calls --on BasketService` finds nothing, while `calls --on
+Assert` works, because a static call names its type at the call site.
+
+What survives: `--on` a **field or a static type** answers "what does this
+codebase do with this thing", which is a convention question worth asking. What
+does not survive: called-but-not-defined. The check that found four dead
+`.where()` call sites in Python cannot be trusted on C# instance calls and must
+not be reported as though it could. Extension methods are one symptom of the
+same missing information, not a separate problem.
+
+**Partial classes are merged, by namespace *and* name.** `shape` counts classes,
+and a type declared across three files would count three times and skew every
+percentage. Verified on EF migrations, the classic case: `InitialModel.cs` and
+`InitialModel.Designer.cs` yield one record carrying `Up`, `Down` and
+`BuildTargetModel` together. The namespace in the key is not optional — the same
+codebase has `CatalogItem` as both an entity and a Blazor model, and merging
+those would invent a type that does not exist.
 
 **Reachability has no build-time analogue.** In Python, a class nothing imports
 never registers, and that is the failure this skill exists to catch. In C# an
@@ -109,11 +125,38 @@ unreferenced class compiles perfectly. The same disease appears as a service
 never added to the container or a controller never discovered — so the check
 moves from the compiler to a query against the composition root.
 
-### JavaScript
+**The adapter is built, not shipped.** `dotnet build -c Release` runs once on
+first use and the assembly is cached. If you are reading a C# codebase the SDK
+is present by definition — the same argument that lets the TypeScript extractor
+use the project's own compiler.
 
-Same extractor as TypeScript, minus the types. Expect `ATTRIBUTE DETAIL` to be
-nearly empty — without annotations there is no modal form to report — and expect
-most `.js` files in a TypeScript project to be configuration rather than source.
+### JavaScript — implemented, by the same extractor
+
+One parser, two reported languages. The TypeScript compiler reads JavaScript at
+the same fidelity, so `.js` costs nothing extra — but a `.js` file is stamped
+`javascript`, not `typescript`. Reporting it as TypeScript would make `--lang
+javascript` return nothing while JavaScript sat in the index, which is a lie the
+reader has no way to catch.
+
+Expect `ATTRIBUTE DETAIL` to be nearly empty: with no annotations there is no
+modal form to report. And expect most `.js` in a TypeScript project to be
+configuration — in a real one, the single `.js` file was `eslint.config.js`,
+with seven imports and no definitions at all.
+
+Two shapes that only appear once you index real JavaScript:
+
+**Anonymous default exports.** `export default (o, c, d) => {...}` is how
+plugins, middleware and wrapped components are written, and it has no name for a
+declaration walker to find. Indexing a real package recorded 74 functions before
+this was handled and 111 after — a third of the codebase was invisible. They are
+recorded under the name `default`; what such a function *calls* is the entire
+convention.
+
+**Published packages ship minified bundles at their own root.** Not under
+`dist/`, so no directory rule catches them, and they parse perfectly — one
+reported `Error` as a dominant base class. Files whose longest line runs past a
+couple of thousand characters are build output, and are skipped and counted, not
+read.
 
 ## Adding one
 

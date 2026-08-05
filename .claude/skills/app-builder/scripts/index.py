@@ -217,7 +217,10 @@ def main() -> int:
                     print(f"  {repo}: {len(paths)} {language} files SKIPPED -- {reason}",
                           file=sys.stderr)
                     continue
-                n = 0
+                # Counted from the records, not from the extractor's own name:
+                # one extractor may report more than one language, and the file
+                # is the authority on which it was.
+                here: dict[str, int] = {}
                 for rec in extractor.extract(paths, root, repo, commits):
                     kind = rec.get("k")
                     if kind == "class":
@@ -227,12 +230,14 @@ def main() -> int:
                     elif kind in ("unparsed", "unreadable"):
                         unparsed += 1
                     elif kind == "module":
-                        n += 1
+                        seen = rec.get("lang") or language
+                        here[seen] = here.get(seen, 0) + 1
                     fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-                files += n
-                per_language[language] = per_language.get(language, 0) + n
-                fidelity[language] = extractor.FIDELITY
-                counted.append(f"{n} {language}")
+                for seen, n in here.items():
+                    files += n
+                    per_language[seen] = per_language.get(seen, 0) + n
+                    fidelity[seen] = extractor.FIDELITY
+                counted += [f"{n} {seen}" for seen, n in sorted(here.items())]
 
             print(f"  {repo}: {files - n_before} files"
                   + (f"  ({', '.join(counted)})" if len(counted) > 1 else "")
