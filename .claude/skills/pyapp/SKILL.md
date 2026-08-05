@@ -160,6 +160,18 @@ Read the most typical file **in full** — it is what you copy the structure of.
 Read one atypical file too: it shows which parts are optional, which the typical
 file alone cannot tell you. Copy structure, never domain nouns.
 
+**Typical is not the same as correct.** `exemplars` ranks by how many features a
+file shares with its siblings; nothing in that measures whether it works. A file
+can be the most representative in the layer and still call a method that does
+not exist, because nothing ever ran it. Copying it faithfully then spreads one
+dead line across everything you generate.
+
+So when a layer calls into a library, check the names against the **library**,
+not against the exemplar — `find --path '<library>/*'` lists what actually
+exists. Where exemplars disagree, the one matching the library wins, however
+typical the other is. This is not hypothetical: it is how `.where()` — a method
+the library does not have — reached nine generated controllers at once.
+
 ### 5. Find the wiring
 
 ```bash
@@ -226,10 +238,18 @@ directory is itself that root.
 nothing imports, which is the failure step 5 exists to prevent.
 
 The interpreter must be one that can import what the generated code imports.
-This repository's venv holds only what this repository needs, so a generated
-application gets its own — `<solution>/<app-name>/.venv` — with its own
-requirements. Pointing `--python` at the wrong interpreter turns a missing
-dependency into what looks like a generation error.
+Pointing `--python` at one that cannot turns a missing dependency into what
+looks like a generation error — so check before concluding the code is wrong.
+
+Look at where the dependencies are declared before assuming which interpreter
+that is — one venv at the repository root, one per application, or neither, in
+which case `proof` reports the source codebase's own, which can at least import
+what the code imports.
+
+Whatever you add to a generated application, add its dependency to the
+`requirements.txt` that governs the venv it runs in. A skill never needs one:
+skills import nothing but the standard library, which is what lets one be copied
+into another checkout and still work.
 
 Then run whatever the source codebase itself uses as proof. Do not ask which
 that is; the repository already says:

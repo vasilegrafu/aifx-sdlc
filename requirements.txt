@@ -1,13 +1,27 @@
-# Everything needed to run what is in this repository.
+# Everything needed to run what is in this repository, in one venv at the root.
 #
 #   python -m venv .venv
 #   .venv\Scripts\activate        (Windows)   |   source .venv/bin/activate
 #   pip install -r requirements.txt
 #
-# Nothing yet. Every script here runs on the standard library, which is what
-# lets a skill be copied into another checkout and still work.
+# The skills under .claude/skills/ need none of it. They import nothing but the
+# standard library, deliberately: that is what lets one be copied into another
+# checkout and still work. Everything below exists to run what they generate.
+
+SQLAlchemy>=2.0
+pytest>=8.0
+
+# Not the solution's choices -- devfx's. It is linked in as a junction rather
+# than installed, so it brings no metadata with it and what it imports has to be
+# declared here by hand. Both were found by importing devfx.database.sqlalchemy
+# until it stopped raising:
 #
-# Anything that reaches the network, or renders a template, gets added the day
-# something imports it -- not before. A dependency nothing imports is a
-# dependency nobody maintains, and jinja2 sat here proving that until it was
-# removed.
+#   pydantic  <- devfx.data_retrieval_specs, used by StandardDbCtrl
+#   pandas    <- devfx.core, reached through devfx's SessionMaker
+#
+# Anything else devfx grows will surface the same way, at import time.
+pydantic>=2.0
+pandas>=2.0
+
+# SQLite needs no driver -- sqlite3 is in the standard library. A different
+# database would add its driver here the day the configuration points at one.

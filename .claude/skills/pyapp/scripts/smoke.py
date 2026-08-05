@@ -11,17 +11,21 @@ the route is not registered, the handler never runs. Nothing errors. It surfaces
 much later, against a system that looks healthy.
 
     ./.venv/Scripts/python.exe .claude/skills/pyapp/scripts/smoke.py \
-        --app myapp --python solution/myapp/.venv/Scripts/python.exe \
-        database/reference_data/models/stock_instrument.py
+        --python solution.university/.venv/Scripts/python.exe \
+        database/models/student.py
 
-`--app` resolves under the solution directory named in the config. Use `--root`
-instead for a project that lives somewhere else.
+The files are relative to the application root, which is the solution directory
+from the config. Add `--app <name>` when that directory holds applications in
+named subdirectories, or `--root <path>` for a project somewhere else entirely.
+`--python` is relative to where you are standing, not to the application.
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -92,6 +96,9 @@ def main() -> int:
     ap.add_argument("--root", help="the project the files belong to (overrides --app)")
     ap.add_argument("--python", help="interpreter for the import check "
                                      "(default: skip, structure check only)")
+    ap.add_argument("--env", action="append", metavar="KEY=VALUE", default=[],
+                    help="environment variable for the import check; repeatable. "
+                         "Needed when a module reads configuration at import time")
     ap.add_argument("--timeout", type=int, default=60)
     args = ap.parse_args()
 
@@ -113,13 +120,31 @@ def main() -> int:
 
     failures = 0
 
+    # The import check runs with cwd set to the application root, so a relative
+    # --python would resolve against the application rather than against the
+    # directory it was typed in. Anchor it now, while cwd is still the caller's.
+    python = args.python
+    if python:
+        candidate = Path(python)
+        if candidate.exists():
+            python = str(candidate.resolve())
+        elif not shutil.which(python):
+            sys.exit(f"--python is neither a file nor on PATH: {args.python}")
+
+    env = None
+    if args.env:
+        env = os.environ.copy()
+        for pair in args.env:
+            key, _, value = pair.partition("=")
+            env[key] = value
+
     print("== IMPORTS ==")
     if not args.python:
         print("  skipped -- pass --python <interpreter> to actually import")
     else:
         for f in files:
             mod = dotted(f, root)
-            proc = subprocess.run([args.python, "-c", f"import {mod}"], cwd=root,
+            proc = subprocess.run([python, "-c", f"import {mod}"], cwd=root, env=env,
                                   capture_output=True, text=True, timeout=args.timeout)
             if proc.returncode == 0:
                 print(f"  ok    {mod}")

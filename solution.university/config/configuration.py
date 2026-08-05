@@ -20,6 +20,10 @@ class Configuration:
         cls._values = json.loads(path.read_text(encoding='utf-8'))
 
     @classmethod
+    def is_loaded(cls):
+        return bool(cls._values)
+
+    @classmethod
     def get(cls, key, default=None):
         node = cls._values
         for part in key.split(':'):

@@ -70,7 +70,7 @@ def configured_repositories() -> list[dict]:
 
 
 def solution_dir() -> Path:
-    """Where generated applications are built. Defaults to `solution/`."""
+    """Where generated applications are built. Named in config.json; `solution` if absent."""
     configured = load_config().get("solution") or "solution"
     path = Path(configured)
     return path.resolve() if path.is_absolute() else (repo_root() / path).resolve()

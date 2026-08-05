@@ -6,15 +6,36 @@ Skills for Claude Code, and the configuration they share.
 
 `.claude/skills/` holds the skills; `.claude/agents/` is declared and empty.
 `config.json` says which codebases those skills may read and where they build.
-Everything runs on the standard library — see `requirements.txt`.
+`solution.university/` holds what they generated.
 
 There is no build and no test runner. Do not describe one here before it exists.
 
-## Running anything
+## One interpreter
 
 ```bash
-./.venv/Scripts/python.exe <script>          # NOT bare `python`
+./.venv/Scripts/python.exe <script>
 ```
+
+One venv at the root, built from one `requirements.txt`, serving both the skills
+and what they generate.
+
+Nothing in `requirements.txt` is needed by a skill. Every skill imports nothing
+but the standard library, deliberately — that is what lets one be copied into
+another checkout and still work. The dependencies are there for
+`solution.university/`, and some of them are not even its choices: `devfx` is
+linked in as a junction rather than installed, so it brings no metadata with it
+and what it imports has to be declared by hand.
+
+The venv is not tracked. Rebuild it with `python -m venv .venv` and
+`pip install -r requirements.txt`.
+
+## Tests
+
+```bash
+./.venv/Scripts/python.exe -m pytest solution.university
+```
+
+They run against their own database and refuse to start if pointed at any other.
 
 ## Configuration
 

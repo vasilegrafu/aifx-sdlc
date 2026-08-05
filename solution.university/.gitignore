@@ -1,0 +1,8 @@
+# Generated database files. The generator drops and recreates these, so nothing
+# here is a source of truth -- the models are.
+database_storage/
+
+# devfx is a junction to another repository, exactly as in the codebase this
+# application was modelled on. Git follows a junction and would commit someone
+# else's source into this one.
+devfx/
