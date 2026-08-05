@@ -1,6 +1,6 @@
 ---
-name: pyapp
-description: Generate a working part of a Python application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, or where two codebases disagree. Reads codebases of any size through a structural index rather than by opening files.
+name: app-builder
+description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, React or TypeScript components, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, which conventions are dying, or where two codebases disagree. Reads Python and TypeScript/JavaScript codebases of any size through a structural index rather than by opening files.
 ---
 
 # Generating a layer from codebases you were pointed at
@@ -25,7 +25,7 @@ Index once, query many times, then read two or three files in full — chosen by
 the index, not by guessing.
 
 ```bash
-./.venv/Scripts/python.exe .claude/skills/pyapp/scripts/index.py --name <index-name>
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py --name <index-name>
 ```
 
 With no arguments it indexes every codebase declared in the config — see below.
@@ -42,12 +42,24 @@ paths that are already there.
 
 ```json
 {
-  "pyapp": {
+  "app-builder": {
     "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
-    "solution": "solution"
+    "solution": "solution.university"
   }
 }
 ```
+
+`solution` may be a plain path or an object carrying `exclude`, for the rare tree
+that genuinely is not source.
+
+**You do not need `exclude` to stop a shared library being indexed twice.** When
+a target and a source are both linked to the same library, the two junctions
+resolve to the same files — and indexing them twice would make every count
+wrong, every `DISAGREEMENTS` row compare a file against itself, and every doubly
+defined name ambiguous. `index.py` indexes one physical file once, under whichever
+root reached it first, and reports how many it skipped. Config order decides the
+owner: sources are indexed before the target, so a shared library lands with the
+exemplars that call it, which is where you want to read it.
 
 `name` is what the index calls that codebase and what `DISAGREEMENTS` reports
 against, so it is worth choosing well. `solution` is where generated
@@ -57,6 +69,23 @@ applications are built, relative to this repository unless absolute.
 nothing to disagree with, and step 6 has nothing to settle. Combining the best
 of several codebases needs several entries here. If the user asks for that with
 one configured, say so rather than implying a comparison happened.
+
+## The target is a codebase too, and it outranks the source
+
+The generated application is indexed alongside its sources, under its own name.
+This matters the second time you are asked for something, and it is the failure
+you will not notice: read only the source, and every deliberate departure made
+last time is faithfully undone. A schema dropped on purpose comes back, because
+the source still has it at 100%.
+
+So once the target holds the layer being asked for, **it is the later decision
+and it wins.** `shape` labels it and says so; where a feature is universal in
+the source and absent from the target, the answer is already settled and there
+is nothing to ask.
+
+Ask only about rows where no target column appears. Reintroducing something the
+target dropped is not fidelity, it is regression — and the person who dropped it
+will have to drop it again.
 
 A directory linked into a solution by junction or symlink is **part of that
 solution**, and is indexed as part of it. It sits on the import path; the code
@@ -86,6 +115,45 @@ A `shape` run across both averages a library's conventions into an
 application's and produces a form neither one uses — the same error as averaging
 two codebases in step 6. Query-time separation keeps the index faithful to the
 solution while still letting you read one side at a time.
+
+## When the library is not there
+
+The application may not be able to reach the library its exemplars call. There
+are three answers, and the right one is rarely obvious:
+
+- **Link it**, as the source does — a junction or symlink into the other
+  repository. Highest fidelity, and the generated code stays identical to the
+  exemplar. The cost is that a linked directory carries no package metadata, so
+  **nothing declares its dependencies**: they have to be found by importing it
+  until it stops raising, and written down by hand.
+- **Reproduce its surface**, minimally — only the methods the generated code
+  calls, under the same names. Self-contained, and honest as long as it stays
+  small. It stops being honest the moment it grows behaviour of its own.
+- **Deviate**, and call the underlying framework directly. Cheapest, and it
+  breaks the contract `shape` reported. Only with the user's agreement.
+
+Say which one you took and why. All three are defensible; silently picking one
+is not.
+
+## The target is not the source's platform
+
+The contract has a platform baked into it, and the exemplars will not mention it
+because to them it is not a variable. Reproducing the contract faithfully onto a
+different database, runtime or operating system is where generated code fails —
+each failure looking like a different problem, all of them the same seam.
+
+Before generating, enumerate what the source assumes and the target does not:
+
+- **dialect-only DDL** — schemas, `IF EXISTS` forms, collations, identity
+- **isolation levels** the target rejects, including the source's default
+- **constraint enforcement that is off by default** — SQLite ignores foreign
+  keys unless every connection is told otherwise, so `ondelete='CASCADE'` is
+  declared and never enforced, and nothing errors until a row is orphaned
+- **types with no equivalent**, and how the source spells identity
+
+Each of these is a VARIES that the **target** settles, not the source. Reproduce
+what the contract means, not the SQL it happens to emit — and when you diverge,
+say so in the file, next to the line that diverges.
 
 ## The procedure
 
@@ -149,6 +217,9 @@ Read the output as separate instructions, not as a report:
   Handle it in step 6.
 
 `--usually` moves the threshold between *usual* and *varies*; the default is 60.
+`--lang` narrows to one language when an index holds more than one — a backend
+and its frontend have different conventions, and averaging them reports a form
+neither one uses.
 
 ### 4. Read the exemplars — and only these
 
@@ -167,10 +238,20 @@ not exist, because nothing ever ran it. Copying it faithfully then spreads one
 dead line across everything you generate.
 
 So when a layer calls into a library, check the names against the **library**,
-not against the exemplar — `find --path '<library>/*'` lists what actually
-exists. Where exemplars disagree, the one matching the library wins, however
-typical the other is. This is not hypothetical: it is how `.where()` — a method
-the library does not have — reached nine generated controllers at once.
+not against the exemplar. Do not read for this — ask:
+
+```bash
+scripts/query.py calls --name <index-name> --on <ReceiverName>
+```
+
+It crosses every method invoked on that name against the members that name
+defines, and reports the ones that do not exist, with call sites. Run it on the
+source before copying, and on your output afterwards.
+
+Where exemplars disagree, the one matching the library wins, however typical the
+other is. This is not hypothetical: `.where()` is called four times in the file
+`exemplars` ranks most typical, `StandardDbCtrl` has no such method, and that
+dead line reached nine generated controllers at once before anything ran.
 
 ### 5. Find the wiring
 
@@ -194,7 +275,7 @@ part of the plan rather than a discovery afterwards.
 
 ### 6. Settle disagreements — ask once, not every time
 
-Read `.claude/skills/pyapp/.data/<index-name>/decisions.md` first. If it already
+Read `.claude/skills/app-builder/.data/<index-name>/decisions.md` first. If it already
 answers a disagreement, apply the recorded answer silently.
 
 For anything not recorded, ask the user — one question per genuine
@@ -226,16 +307,67 @@ records where their files are, not permission to edit them.
 
 ### 8. Prove it, do not assume it
 
+A generated application has no proof of its own yet, so build it in four rungs.
+Each catches something the one before cannot, and skipping a rung means claiming
+what you did not check.
+
+**Rung 1 — it imports, and something imports it.**
+
 ```bash
-./.venv/Scripts/python.exe .claude/skills/pyapp/scripts/smoke.py \
-    [--app <subdirectory>] --python <interpreter> <generated files>
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/smoke.py \
+    [--app <subdirectory>] --python <interpreter> [--env KEY=VALUE] <generated files>
 ```
 
 Paths are relative to the application root. Omit `--app` when the solution
-directory is itself that root.
+directory is itself that root. `--env` is for a module that reads configuration
+at import time, which is common enough to expect: the exemplar does it, so the
+generated code does too, and without the variable the import fails for a reason
+that has nothing to do with the code.
 
 `IMPORTS` catches the loud failures. `REACHABLE` catches the quiet one — a class
 nothing imports, which is the failure step 5 exists to prevent.
+
+`smoke.py` checks **Python**; hand it anything else and it says so rather than
+counting it as passing. For TypeScript, rung 1 is `tsc --noEmit`, and the barrel
+chain is already answered from the index by `imports <Symbol> --chain` — an
+`index.ts` that fails to re-export is the same failure as an `__init__.py` that
+does, and it is just as silent.
+
+Then re-index and ask the two questions nothing else answers — whether the
+output still keeps the contract that produced it, and whether it calls anything
+that does not exist:
+
+```bash
+scripts/index.py --name <index-name>
+scripts/query.py conform --name <index-name> \
+    --repo <source> --path '<source layer>' \
+    --target-repo <target> --target-path '<generated layer>'
+scripts/query.py calls --name <index-name> --on <library or base>
+```
+
+`conform` reports what is ALWAYS true of the source and not of the output. Every
+row is either a departure you can name or a mistake; there is no third kind.
+
+**Rung 2 — the entry point runs.** Execute the thing the layer exists to feed:
+the generator, the migration, the server startup. Well-formed code that no one
+has run is not working code.
+
+**Rung 3 — the behaviour that fails silently actually holds.** This is the rung
+that earns the others, and it is the one nothing will do for you. Write a short
+throwaway script that exercises the guarantees the schema and the contract claim
+to make, and watch each one:
+
+- a write followed by a read back
+- a uniqueness rule rejecting a duplicate
+- a reference rejecting an unknown parent
+- a cascade actually removing dependants
+- an upsert updating rather than inserting a second row
+
+Every one of those can be declared, generated perfectly, and not happen. That is
+the whole reason this skill exists, and it is invisible to rungs 1 and 2.
+
+**Rung 4 — pin it in the layer's own tests**, so the next change has to keep it
+true. Rung 3 proves it once; rung 4 proves it from then on.
 
 The interpreter must be one that can import what the generated code imports.
 Pointing `--python` at one that cannot turns a missing dependency into what
@@ -251,8 +383,8 @@ Whatever you add to a generated application, add its dependency to the
 skills import nothing but the standard library, which is what lets one be copied
 into another checkout and still work.
 
-Then run whatever the source codebase itself uses as proof. Do not ask which
-that is; the repository already says:
+For rungs 2 and 4, do not ask what the project runs as proof — the repository
+already says:
 
 ```bash
 scripts/query.py proof --name <index-name>
@@ -270,9 +402,17 @@ State, briefly:
 
 - which exemplar the structure came from, by path
 - what you reproduced because it was contract
-- every VARIES you chose, and on what grounds
-- what `smoke.py` and the project's own check actually proved
+- every VARIES you chose, and on what grounds — including every place the
+  target's platform forced a departure from the source's
+- which rungs of step 8 you climbed, and what each one actually proved
 - anything you could not verify
+
+And report **what generating found wrong in the source**. Reading a layer closely
+enough to reproduce it, then running the result, exercises that layer harder than
+its own repository may ever have — a method that is never called, a convention
+two files disagree about, a constraint that was never enforced. The source is
+read-only, but the finding is not: hand it back, with the file and line. Working
+around it silently leaves the next person to discover it again.
 
 ## When the layer does not exist yet
 
@@ -283,11 +423,18 @@ the nearest layer as a source of conventions instead.
 
 ## Boundaries
 
-- Python only. The index is built from Python's own parser; other languages are
-  not covered and must not be guessed at.
+- **Python and TypeScript/JavaScript.** Both are read by their own compiler's
+  parser, never by pattern matching, and every record says which language
+  produced it and at what fidelity. Reading TypeScript needs `node` and the
+  project's own `node_modules/typescript` — present by definition in a
+  TypeScript codebase. Nothing else is covered, and must not be guessed at:
+  a language with no extractor is reported as skipped, never as absent.
+  `references/languages.md` holds the mapping, the traps, and how to add one.
 - The index holds facts derived from other people's repositories. It lives in
   `.data/` beside this file — inside a tracked skill, so it must stay ignored,
   and nothing from it belongs in a tracked file.
 - `references/generating.md` holds the detail: turning prose into a spec,
-  reading `shape` output closely, and what to do when the exemplars conflict
-  with each other inside one codebase.
+  reading `shape` output closely, what to do when exemplars conflict inside one
+  codebase, why not to improve a signature that looks clumsy, why code that
+  works from one directory may work from nowhere else, and what you may honestly
+  claim to have proved.

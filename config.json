@@ -1,5 +1,5 @@
 {
-  "pyapp": {
+  "app-builder": {
     "repositories": [
       {
         "name": "atlas",

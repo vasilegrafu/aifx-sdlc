@@ -6,6 +6,8 @@ codebase of any size can be understood without reading it.
     config      which codebases and which destination are configured
     proof       how a codebase proves itself: tests, entry points, interpreter
     layers      what parts exist, and which is the one you were asked about
+    calls       methods invoked on a name vs. the ones that name defines
+    conform     whether generated code still keeps the contract that produced it
     find        the classes/functions matching a filter -- and their files
     shape       what is ALWAYS true of a set of classes vs. what VARIES
     exemplars   the most typical file to copy, and the outlier that shows why
@@ -26,8 +28,9 @@ import json
 import re
 from collections import Counter, defaultdict
 
-from _common import (configured_repositories, load_config, pct, read_index,
-                     skill_root, solution_dir, truncate, workspace)
+from _common import (configured_repositories, configured_solution, load_config,
+                     pct, read_index,
+                     skill_root, truncate, workspace)
 
 # ---------------------------------------------------------------- filtering
 
@@ -47,10 +50,13 @@ def add_filters(ap):
     ap.add_argument("--decorator", help="only classes/functions carrying this decorator")
     ap.add_argument("--symbol", help="regex on the class/function name")
     ap.add_argument("--repo", help="restrict to one repository")
+    ap.add_argument("--lang", help="restrict to one language, e.g. python, typescript")
 
 
 def matches(rec, args) -> bool:
     if args.repo and rec["repo"] != args.repo:
+        return False
+    if getattr(args, "lang", None) and language_of(rec) != args.lang:
         return False
     if args.path and not fnmatch.fnmatch(rec["path"], args.path):
         return False
@@ -108,7 +114,7 @@ def cmd_config(args):
     repos = configured_repositories()
     if not repos:
         print("REPOSITORIES  none configured. Add them to the config file:\n")
-        print('  "pyapp": {\n'
+        print('  "app-builder": {\n'
               '    "repositories": [{"name": "atlas", "path": "D:/code/atlas"}],\n'
               '    "solution": "solution"\n'
               '  }')
@@ -117,17 +123,54 @@ def cmd_config(args):
         for r in repos:
             print(f"  {'ok ' if r['exists'] else 'MISSING'}  {r['name']:<20} {r['path']}")
 
-    sol = solution_dir()
-    print(f"\nSOLUTION      {sol}"
-          f"{'' if sol.is_dir() else '   (does not exist yet)'}")
+    target = configured_solution()
+    print(f"\nTARGET        {'ok ' if target['exists'] else 'not built yet'}  "
+          f"{target['name']:<20} {target['path']}")
+    print("              indexed with the sources; where it has already diverged,"
+          "\n              it is the later decision and it wins")
 
     data = skill_root() / ".data"
     built = sorted(p.name for p in data.iterdir() if p.is_dir()) if data.is_dir() else []
     print(f"\nINDEXES BUILT {', '.join(built) if built else 'none -- run index.py'}")
 
 
-PROOF_FILES = ("pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml", "noxfile.py",
-               "Makefile", "manage.py", "conftest.py", "alembic.ini", "requirements.txt")
+# Per-language facts, kept in one table rather than scattered through the
+# queries. Everything else here reads the index schema and does not care what
+# produced it; these are the few places that must. A new language is a new row.
+LANGUAGES = {
+    "python": {
+        "proof_files": ("pytest.ini", "tox.ini", "setup.cfg", "pyproject.toml",
+                        "noxfile.py", "Makefile", "manage.py", "conftest.py",
+                        "alembic.ini", "requirements.txt"),
+        # the file that re-exports a package, and so continues a registration chain
+        "barrel": "__init__.py",
+        "entry": "a module guarded by __main__",
+    },
+    "typescript": {
+        "proof_files": ("package.json", "tsconfig.json", "vitest.config.ts",
+                        "jest.config.js", "playwright.config.ts", "vite.config.ts"),
+        "barrel": "index.ts",
+        "entry": "a script in package.json",
+    },
+    "csharp": {
+        "proof_files": ("Directory.Build.props", "global.json", "nuget.config"),
+        # C# has no re-export file: a namespace is visible without one, and the
+        # analogue of an unimported class is a service never registered.
+        "barrel": None,
+        "entry": "a Main method or a host builder",
+    },
+}
+
+PROOF_FILES = tuple(dict.fromkeys(f for lang in LANGUAGES.values()
+                                  for f in lang["proof_files"]))
+
+
+def language_of(rec) -> str:
+    return rec.get("lang") or "python"
+
+
+def barrel_for(rec) -> str | None:
+    return LANGUAGES.get(language_of(rec), LANGUAGES["python"])["barrel"]
 
 
 def cmd_proof(args):
@@ -147,21 +190,24 @@ def cmd_proof(args):
                      or (repo["path"] / v / "bin" / "python").is_file()), None)
         print(f"  INTERPRETER {repo['path'] / venv if venv else 'none in the tree'}")
 
-    test_dirs, entries = Counter(), []
+    test_dirs, entries, langs = Counter(), [], Counter()
     for rec in read_index(args.name):
         if args.repo and rec["repo"] != args.repo:
             continue
         if rec["k"] != "module":
             continue
+        langs[language_of(rec)] += 1
         top = rec["path"].split("/")[0]
-        if "test" in top.lower():
+        if "test" in top.lower() or "spec" in top.lower():
             test_dirs[f"{rec['repo']}/{top}"] += 1
         if rec.get("main"):
             entries.append(f"{rec['repo']}/{rec['path']}")
 
-    print("\n  TESTS       " + (", ".join(f"{d} ({n} files)"
-                                          for d, n in test_dirs.most_common())
-                                if test_dirs else "no test directories in the index"))
+    print("\n  LANGUAGES   " + ", ".join(f"{k} ({v} files)"
+                                         for k, v in langs.most_common()))
+    print("  TESTS       " + (", ".join(f"{d} ({n} files)"
+                                        for d, n in test_dirs.most_common())
+                              if test_dirs else "no test directories in the index"))
     print("  ENTRY POINTS")
     for e in entries[: args.limit]:
         print(f"      {e}")
@@ -345,9 +391,17 @@ def cmd_shape(args):
                   f"  ({pct(n, total)}%)")
 
     if len(per_repo) > 1:
+        target_name = configured_solution()["name"]
+        involves_target = target_name in per_repo
         print("\n== DISAGREEMENTS ==")
-        print("   one repository always does this, another never does."
-              "\n   These are decisions, not averages. Ask before choosing.\n")
+        if involves_target:
+            print(f"   {target_name} is the generated target, not another source."
+                  "\n   Where it differs it has already decided, and it wins: do not"
+                  "\n   reintroduce what it deliberately dropped. Ask only about the"
+                  "\n   rows where no target column appears.\n")
+        else:
+            print("   one repository always does this, another never does."
+                  "\n   These are decisions, not averages. Ask before choosing.\n")
         found = False
         for f, by_repo in repo_counts.items():
             hi = [(r, by_repo.get(r, 0), n) for r, n in per_repo.items()
@@ -357,9 +411,16 @@ def cmd_shape(args):
             if hi and lo:
                 found = True
                 kind, item = f.split(":", 1)
-                print(f"  {LABELS.get(kind, kind)}: {item}")
+                verdict = ""
+                if involves_target:
+                    on_target = pct(by_repo.get(target_name, 0),
+                                    per_repo[target_name]) >= 90
+                    verdict = ("   -> the target keeps it" if on_target
+                               else "   -> the target dropped it: leave it dropped")
+                print(f"  {LABELS.get(kind, kind)}: {item}{verdict}")
                 for r, c, n in hi + lo:
-                    print(f"      {r:<24} {c}/{n} ({pct(c, n)}%)")
+                    mark = " (target)" if r == target_name else ""
+                    print(f"      {r + mark:<24} {c}/{n} ({pct(c, n)}%)")
         if not found:
             print("  none -- the repositories agree on every feature of this set.")
 
@@ -415,6 +476,119 @@ def _imports_any(mod, names: set[str]) -> tuple[str, str] | None:
     return None
 
 
+def cmd_calls(args):
+    """Every method invoked on a name, against the methods that name defines.
+
+    The index records what a class defines and, separately, what each function
+    calls. Crossing the two finds a call to a method that does not exist -- which
+    imports cleanly, passes every linter, and raises only when something finally
+    runs that line.
+    """
+    on = args.on
+    called: dict[str, list] = defaultdict(list)
+    defined: set[str] = set()
+    found_class = None
+
+    for rec in read_index(args.name):
+        if rec["k"] == "class":
+            if rec["name"] == on and (not args.defined_in
+                                      or fnmatch.fnmatch(rec["path"], args.defined_in)):
+                found_class = rec
+                defined |= {m["name"] for m in rec["methods"]}
+                defined |= {a["name"] for a in rec["attrs"]}
+                defined |= {a["name"] for a in rec["assigns"]}
+            for m in rec["methods"]:
+                for call in m.get("calls", ()):
+                    root, _, attr = call.partition(".")
+                    if root == on and matches(rec, args):
+                        called[attr].append(f"{rec['repo']}/{rec['path']}:{m['line']}")
+        elif rec["k"] == "func":
+            for call in rec.get("calls", ()):
+                root, _, attr = call.partition(".")
+                if root == on and matches(rec, args):
+                    called[attr].append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
+
+    if not called:
+        return print(f"nothing calls anything on {on!r}")
+
+    print(f"{len(called)} distinct methods called on {on}"
+          f"  ({sum(len(v) for v in called.values())} call sites)\n")
+
+    if found_class is None:
+        print(f"  {on} is not defined in this index, so nothing can be checked "
+              f"against it.\n  Calls found:\n")
+        for attr, sites in sorted(called.items(), key=lambda kv: -len(kv[1])):
+            print(f"    {attr:<28} {len(sites)}")
+        return
+
+    print(f"defined at {found_class['repo']}/{found_class['path']}:{found_class['line']}"
+          f"  ({len(defined)} members)\n")
+    missing = {a: s for a, s in called.items() if a not in defined}
+    for attr, sites in sorted(called.items(), key=lambda kv: -len(kv[1])):
+        if attr not in missing:
+            print(f"  ok       {attr:<28} {len(sites)} call site(s)")
+    if missing:
+        print("\n== NOT DEFINED ==")
+        print("   called, but no such member. These raise when the line runs, and"
+              "\n   never before -- the file imports and every linter passes.\n")
+        for attr, sites in sorted(missing.items(), key=lambda kv: -len(kv[1])):
+            print(f"  MISSING  {attr:<28} {len(sites)} call site(s)")
+            for site in sites[: args.limit]:
+                print(f"           {site}")
+    else:
+        print(f"\nevery method called on {on} exists.")
+
+
+def cmd_conform(args):
+    """Does the generated layer still satisfy the contract that produced it?
+
+    `shape` says what is ALWAYS true of the source. Nothing else checks that the
+    output kept it. This does: same measure, both sides, difference reported.
+    """
+    source = [r for r in read_index(args.name) if r["k"] == "class"
+              and fnmatch.fnmatch(r["path"], args.path)
+              and (not args.repo or r["repo"] == args.repo)]
+    target = [r for r in read_index(args.name) if r["k"] == "class"
+              and fnmatch.fnmatch(r["path"], args.target_path)
+              and (not args.target_repo or r["repo"] == args.target_repo)]
+
+    if not source:
+        return print("no source classes matched --path/--repo")
+    if not target:
+        return print("no target classes matched --target-path/--target-repo")
+
+    source_always = set.intersection(*(features(r) for r in source))
+    target_always = set.intersection(*(features(r) for r in target))
+
+    print(f"source {len(source)} classes  ->  target {len(target)} classes\n")
+
+    kept = sorted(source_always & target_always)
+    dropped = sorted(source_always - target_always)
+    added = sorted(target_always - source_always)
+
+    print(f"== KEPT ({len(kept)}) ==")
+    print("  " + (", ".join(f.split(':', 1)[1] for f in kept) if kept else "-"))
+
+    print(f"\n== DROPPED ({len(dropped)}) ==")
+    if dropped:
+        print("   always true of the source, not always true of the target. Each is"
+              "\n   either a deliberate departure you can name, or a mistake.\n")
+        for f in dropped:
+            kind, item = f.split(":", 1)
+            missing_in = [r["name"] for r in target if f not in features(r)]
+            print(f"  {LABELS.get(kind, kind)}: {item}")
+            print(f"      absent from {len(missing_in)}/{len(target)}: "
+                  f"{truncate(', '.join(missing_in[:6]), 70)}")
+    else:
+        print("  none -- the target keeps everything the source contracts.")
+
+    if added:
+        print(f"\n== ADDED ({len(added)}) ==")
+        print("   universal in the target and not in the source. Usually the domain,"
+              "\n   sometimes a convention worth carrying back.\n")
+        print("  " + ", ".join(f.split(':', 1)[1] for f in added))
+
+
 def cmd_imports(args):
     sym = args.symbol_arg
     modules, subclasses = [], []
@@ -448,7 +622,7 @@ def cmd_imports(args):
         # thing that makes a definition take effect may be several hops up,
         # and each hop is another file that has to be edited.
         nxt = {m["dir"].rsplit("/", 1)[-1] for m, _ in hits
-               if m["path"].endswith("__init__.py") and m["dir"]}
+               if barrel_for(m) and m["path"].endswith(barrel_for(m)) and m["dir"]}
         frontier = nxt - seen
         seen |= frontier
         if not frontier:
@@ -513,6 +687,23 @@ def main() -> int:
     p.add_argument("--depth", type=int, default=4, help="maximum hops with --chain")
     p.add_argument("--limit", type=int, default=40)
     p.set_defaults(fn=cmd_imports)
+
+    p = sub.add_parser("calls", help="methods called on a name vs. the ones it defines")
+    p.add_argument("--on", required=True, metavar="NAME",
+                   help="the receiver, e.g. StandardDbCtrl")
+    p.add_argument("--defined-in", metavar="GLOB",
+                   help="disambiguate when the name is defined more than once")
+    add_filters(p)
+    p.add_argument("--limit", type=int, default=6)
+    p.set_defaults(fn=cmd_calls)
+
+    p = sub.add_parser("conform", help="does the generated layer still keep the contract")
+    p.add_argument("--name", default="default")
+    p.add_argument("--path", required=True, help="glob selecting the source layer")
+    p.add_argument("--repo", help="restrict the source side to one repository")
+    p.add_argument("--target-path", required=True, help="glob selecting the generated layer")
+    p.add_argument("--target-repo", help="restrict the target side to one repository")
+    p.set_defaults(fn=cmd_conform)
 
     p = sub.add_parser("proof", help="how a codebase proves itself -- tests, entry points")
     p.add_argument("--name", default="default")

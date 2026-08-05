@@ -10,7 +10,7 @@ perfect, passes every linter, and never takes effect: the table is not created,
 the route is not registered, the handler never runs. Nothing errors. It surfaces
 much later, against a system that looks healthy.
 
-    ./.venv/Scripts/python.exe .claude/skills/pyapp/scripts/smoke.py \
+    ./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/smoke.py \
         --python solution.university/.venv/Scripts/python.exe \
         database/models/student.py
 
@@ -137,6 +137,24 @@ def main() -> int:
         for pair in args.env:
             key, _, value = pair.partition("=")
             env[key] = value
+
+    # Only Python files can be import-checked by a Python interpreter. Anything
+    # else is reported as unchecked rather than quietly counted as passing --
+    # a verifier that stays silent about what it did not verify is worse than
+    # no verifier, because the PASSED line gets believed.
+    other = [f for f in files if f.suffix.lower() != ".py"]
+    files = [f for f in files if f.suffix.lower() == ".py"]
+    if other:
+        by_suffix = sorted({f.suffix.lower() for f in other})
+        print(f"== NOT CHECKED HERE ==\n  {len(other)} file(s) "
+              f"({', '.join(by_suffix)}) -- this checks Python.")
+        print("  TypeScript: `tsc --noEmit` for rung 1, and `query.py imports "
+              "<Symbol> --chain`\n              for the barrel chain, which the "
+              "index already answers.\n")
+
+    if not files:
+        print("no Python files given -- nothing to check")
+        return 1 if other else 0
 
     print("== IMPORTS ==")
     if not args.python:

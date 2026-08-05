@@ -96,9 +96,53 @@ matches both, that is a genuine question for the user.
 `exemplars` on the narrowed set then gives a typical file worth copying. On an
 un-narrowed set it gives a typical file worth nothing.
 
+## Do not improve the exemplar
+
+The other way to get this wrong is the opposite of copying a mistake: copying it
+correctly and then making it nicer.
+
+A signature that looks clumsy usually is not. The source's controllers take
+`session` as a required first parameter, so every caller writes `None`
+explicitly:
+
+```python
+StudentDbCtrl.get_by_id(None, id=student_id)
+```
+
+Defaulting it to `None` reads better and is wrong — `save(entity)` then binds
+the entity to `session`, and the error arrives one frame away from anything that
+explains it. The clumsiness was carrying information.
+
+So: **when your version is more ergonomic than the exemplar, find a caller before
+you keep it.** `imports <Symbol> --name <index>` lists them, and one real call
+site settles in a second what an argument about taste will not settle at all.
+If the improvement survives that, keep it and say you deviated.
+
+## Working from one directory is not working
+
+Generated code gets tested from the directory it was generated into, and passes.
+Three separate things then break the first time something runs from elsewhere:
+
+- **a relative path in configuration**, resolved by one caller and not another.
+  If the generator resolves it and the session maker does not, both work from
+  inside the application and neither from the repository root. Put the rule in
+  one module and have every caller use it.
+- **an interpreter path** passed relative to where you are standing, then used
+  in a subprocess whose working directory is somewhere else.
+- **a package named after a dependency.** Running a script puts *its own
+  directory* on `sys.path`, so `database/sqlalchemy/` shadows the real
+  SQLAlchemy for anything launched from inside `database/`. The library the
+  exemplar's own copy sits in gets away with the name because it is nested a
+  level deeper and never lands on the path root. Never name a generated package
+  after something it imports.
+
+Run the entry point from **two** working directories before reporting it works —
+the application root and the repository root. All three of the above pass every
+static check and fail only there.
+
 ## The decisions file
 
-`.claude/skills/pyapp/.data/<index-name>/decisions.md`, created on first use:
+`.claude/skills/app-builder/.data/<index-name>/decisions.md`, created on first use:
 
 ```markdown
 # Decisions
@@ -137,22 +181,27 @@ records files it cannot parse as `unparsed` rather than failing. If `meta.json`
 reports an unparsed count that is more than a stray file or two, the roots
 probably include something that is not source — check before trusting `shape`.
 
-## What proof is worth reporting
+## Reporting proof honestly
 
-`smoke.py` proves two things and no more: the modules import, and something
-imports what they define. It cannot prove the generated code is correct.
+The rungs are in `SKILL.md`. What matters here is what you may then claim.
 
-So find the project's own proof and run it. `query.py proof` reports what that
-is — test configuration, test directories, the interpreter that lives in the
-tree, and every module guarded by `__main__`, which is where a schema generator
-or a migration entry point appears. Run the one that would exercise what you
-generated.
+Say which rung you reached, and claim only that. `smoke.py` proves two things
+and no more: the modules import, and something imports what they define. It
+cannot tell you the code is right. An entry point that runs proves the wiring,
+not the behaviour. Only rung 3 touches the guarantees that fail silently, and
+only rung 4 keeps them true after the next change.
 
-The interpreter matters as much as the test. A generated layer imports what its
-source imported, and this repository's venv holds only what this repository
-needs. `proof` reports the source codebase's own interpreter for that reason:
-pointed at the wrong one, a missing dependency reads as a generation error.
+Name what you did not check, in the same breath. A layer whose SQL Server
+branches have never executed is generated and partly unverified, and saying so
+costs a sentence — while calling it working because it looked right costs
+whoever believes you.
 
-If there is no proof, or it cannot run here, report the work as generated and
-unverified. That is an honest result. Calling it working because it looked right
-is not.
+Two failures read identically and are not the same, so separate them before
+reporting either: **generated code that is wrong**, and **an interpreter that
+cannot import what the code imports**. Check where the dependencies are declared
+before concluding the first. `query.py proof` reports the interpreter living in
+the source tree, which can at least import what the source imports.
+
+If there is no proof available at all, or none of it can run here, say that
+plainly. An honest "generated, unverified" is a usable result. A confident one
+that turns out to be wrong is not.

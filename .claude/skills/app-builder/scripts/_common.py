@@ -1,4 +1,4 @@
-"""Shared helpers for the pyapp scripts.
+"""Shared helpers for the app-builder scripts.
 
 The index is never read into a conversation whole. Everything here is built so
 that `query.py` can filter a multi-megabyte file down to a few hundred lines
@@ -12,15 +12,32 @@ import os
 import sys
 from pathlib import Path
 
+# The config block this skill reads. Earlier names are still accepted: a rename
+# of the skill should not silently stop it finding the codebases it was given.
+CONFIG_KEYS = ("app-builder", "pyapp-builder", "pyapp")
+
 # Directories that are never source: build output, caches, vendored copies.
 SKIP_DIRS = {
-    ".git", ".hg", ".svn", ".venv", "venv", "env", "__pycache__", ".mypy_cache",
-    ".pytest_cache", ".ruff_cache", ".tox", "node_modules", "site-packages",
-    "build", "dist", ".eggs", ".idea", ".vscode",
+    # version control and editors
+    ".git", ".hg", ".svn", ".idea", ".vscode", ".vs",
+    # python
+    ".venv", "venv", "env", "__pycache__", ".mypy_cache", ".pytest_cache",
+    ".ruff_cache", ".tox", "site-packages", ".eggs",
+    # javascript / typescript
+    "node_modules", ".next", ".nuxt", ".svelte-kit", "coverage",
+    # dotnet
+    "obj", "packages",
+    # shared build output
+    "build", "dist", "out", "target",
 }
 
+# Build output is often named after the mode it was built in -- `dist.dev`,
+# `dist.prod`, `build.release`. Minified bundles parse perfectly and would be
+# indexed as if they were source, reporting a "convention" no one wrote.
+SKIP_PREFIXES = ("dist.", "build.", "out.")
+
 def skill_root() -> Path:
-    """The pyapp skill directory these scripts live in."""
+    """The app-builder skill directory these scripts live in."""
     return Path(__file__).resolve().parents[1]
 
 
@@ -33,7 +50,7 @@ def repo_root() -> Path:
 
 
 def load_config() -> dict:
-    """The `pyapp` block of `config.json`.
+    """The skill's block of `config.json`.
 
     A missing file or a missing block is not an error -- every script still
     takes explicit paths on the command line, and saying so is more use than
@@ -47,7 +64,7 @@ def load_config() -> dict:
         except json.JSONDecodeError as exc:
             sys.exit(f"{cfg_file} is not valid JSON: {exc}")
 
-    block = cfg.get("pyapp") or {}
+    block = next((cfg[k] for k in CONFIG_KEYS if k in cfg), {})
     block["_file"] = str(cfg_file)
     block["_exists"] = cfg_file.exists()
     return block
@@ -65,15 +82,35 @@ def configured_repositories() -> list[dict]:
         path = path.resolve()
         out.append({"name": entry.get("name") or path.name,
                     "path": path, "exists": path.is_dir(),
-                    "exclude": tuple(entry.get("exclude") or ())})
+                    "exclude": tuple(entry.get("exclude") or ()),
+                    "is_target": False})
     return out
+
+
+def configured_solution() -> dict:
+    """The target application, as a repository record like any other.
+
+    `solution` may be a path, or an object carrying `exclude` for a tree that
+    should not be walked. It is indexed alongside the sources deliberately: once
+    the target holds the layer being asked for, it is the later decision, and a
+    convention it has deliberately dropped must not be reintroduced from the
+    source that still has it.
+    """
+    entry = load_config().get("solution") or "solution"
+    if isinstance(entry, str):
+        entry = {"path": entry}
+    path = Path(entry.get("path") or "solution")
+    if not path.is_absolute():
+        path = repo_root() / path
+    path = path.resolve()
+    return {"name": entry.get("name") or path.name, "path": path,
+            "exists": path.is_dir(), "exclude": tuple(entry.get("exclude") or ()),
+            "is_target": True}
 
 
 def solution_dir() -> Path:
     """Where generated applications are built. Named in config.json; `solution` if absent."""
-    configured = load_config().get("solution") or "solution"
-    path = Path(configured)
-    return path.resolve() if path.is_absolute() else (repo_root() / path).resolve()
+    return configured_solution()["path"]
 
 
 def workspace(name: str) -> Path:
@@ -97,7 +134,7 @@ def read_index(name: str):
         sys.exit(
             f"no index named {name!r} at {path}\n"
             f"build one first:  ./.venv/Scripts/python.exe "
-            f".claude/skills/pyapp/scripts/index.py --name {name} <codebase-root>..."
+            f".claude/skills/app-builder/scripts/index.py --name {name} <codebase-root>..."
         )
     with path.open("r", encoding="utf-8") as fh:
         for line in fh:
@@ -106,9 +143,38 @@ def read_index(name: str):
                 yield json.loads(line)
 
 
+def _is_skipped_dir(name: str) -> bool:
+    return (name in SKIP_DIRS or name.startswith(".")
+            or name.lower().startswith(SKIP_PREFIXES))
+
+
 def _is_excluded(relpath: str, excluded: tuple[str, ...]) -> bool:
     low = relpath.lower()
     return any(low == e or low.startswith(e + "/") for e in excluded)
+
+
+def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
+                      extensions: tuple[str, ...] = (".py",)):
+    """Walk a codebase for files any extractor can read. See iter_py_files."""
+    lowered = tuple(e.lower() for e in extensions)
+    excluded = tuple(e.strip("/").lower() for e in exclude if e.strip("/"))
+    for dirpath, dirnames, filenames in os.walk(root):
+        here = Path(dirpath)
+        dirnames[:] = [
+            d for d in dirnames
+            if not _is_skipped_dir(d)
+            and not _is_excluded(rel(here / d, root), excluded)
+        ]
+        for fn in filenames:
+            if not fn.lower().endswith(lowered):
+                continue
+            p = here / fn
+            try:
+                if p.stat().st_size > max_bytes:
+                    continue
+            except OSError:
+                continue
+            yield p
 
 
 def iter_py_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = ()):
@@ -124,7 +190,7 @@ def iter_py_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = ()):
         here = Path(dirpath)
         dirnames[:] = [
             d for d in dirnames
-            if d not in SKIP_DIRS and not d.startswith(".")
+            if not _is_skipped_dir(d)
             and not _is_excluded(rel(here / d, root), excluded)
         ]
         for fn in filenames:
