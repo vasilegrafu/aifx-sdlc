@@ -433,6 +433,9 @@ the nearest layer as a source of conventions instead.
 - The index holds facts derived from other people's repositories. It lives in
   `.data/` beside this file — inside a tracked skill, so it must stay ignored,
   and nothing from it belongs in a tracked file.
+- `MANUAL.md` is written for the person, not for you: what each command answers,
+  how to read `shape` output, and what the tool cannot do. Point them at it when
+  they ask how to run something themselves.
 - `references/generating.md` holds the detail: turning prose into a spec,
   reading `shape` output closely, what to do when exemplars conflict inside one
   codebase, why not to improve a signature that looks clumsy, why code that

@@ -8,6 +8,12 @@ Skills for Claude Code, and the configuration they share.
 `config.json` says which codebases those skills may read and where they build.
 `solution.university/` holds what they generated.
 
+**[app-builder](.claude/skills/app-builder/MANUAL.md)** reads Python,
+TypeScript, JavaScript and C# codebases through a structural index — what a
+layer's contract is, which conventions are dying, how the wiring works — and
+generates new code that matches. Its manual is written for a person; `SKILL.md`
+beside it is the procedure Claude follows.
+
 There is no build and no test runner. Do not describe one here before it exists.
 
 ## One interpreter
