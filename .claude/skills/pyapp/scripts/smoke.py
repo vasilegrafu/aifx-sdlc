@@ -43,6 +43,24 @@ def defined_names(path: Path) -> list[str]:
             if isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef))]
 
 
+def is_entry_point(path: Path) -> bool:
+    """Does the module guard on `__main__`?
+
+    What such a module defines is *called*, not imported, so nothing importing
+    it is the normal state rather than a missing registration. Reporting a
+    generator's own `generate()` as unwired trains the reader to ignore this
+    check, which is the one failure it exists to catch.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except (SyntaxError, ValueError):
+        return False
+    for node in tree.body:
+        if isinstance(node, ast.If) and "__main__" in ast.dump(node.test):
+            return True
+    return False
+
+
 def importers_of(root: Path, targets: set[str], exclude: set[Path]) -> dict[str, list[str]]:
     """Which files import each target name. Scans the project, not the world."""
     found: dict[str, list[str]] = {t: [] for t in targets}
@@ -68,7 +86,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("files", nargs="+", help="generated files, relative to the root or absolute")
-    ap.add_argument("--app", help="application name under the configured solution directory")
+    ap.add_argument("--app", help="application subdirectory of the configured solution "
+                                  "directory; omit when the solution directory is itself "
+                                  "the application root")
     ap.add_argument("--root", help="the project the files belong to (overrides --app)")
     ap.add_argument("--python", help="interpreter for the import check "
                                      "(default: skip, structure check only)")
@@ -80,8 +100,9 @@ def main() -> int:
     elif args.app:
         root = solution_dir() / args.app
     else:
-        sys.exit("give --app <name>, or --root <path> for a project outside the "
-                 "configured solution directory")
+        # The destination may hold one application at its root, or several in
+        # named subdirectories. With no --app, it is the former.
+        root = solution_dir()
     if not root.is_dir():
         sys.exit(f"not a directory: {root}")
     files = [(root / f).resolve() if not Path(f).is_absolute() else Path(f).resolve()
@@ -109,12 +130,18 @@ def main() -> int:
 
     print("\n== REACHABLE ==")
     targets: dict[str, Path] = {}
+    entry_points = []
     for f in files:
+        entry = is_entry_point(f)
         for name in defined_names(f):
             if name.startswith("!"):
                 print(f"  FAIL  {rel(f, root)} does not parse: {name[1:]}")
                 failures += 1
-            elif not name.startswith("_"):
+            elif name.startswith("_"):
+                continue
+            elif entry:
+                entry_points.append((name, rel(f, root)))
+            else:
                 targets[name] = f
 
     found = importers_of(root, set(targets), exclude={f.resolve() for f in files})
@@ -129,6 +156,9 @@ def main() -> int:
             print(f"  UNWIRED  {name:<29} nothing in the project imports it.")
             print(f"           This will not fail loudly. Add it to {pkg_init}"
                   f" -- or say why it needs no registration.")
+
+    for name, where in entry_points:
+        print(f"  entry {name:<32} called from __main__ in {where}, not imported")
 
     star = found.get("*", [])
     if star:

@@ -199,9 +199,11 @@ Never average two codebases into a form neither one uses.
 
 ### 7. Generate
 
-Into `<solution>/<app-name>/`, where `<solution>` is the destination from the
-config — one directory per generated application — unless the user names a
-different target project, in which case write there instead.
+Into the destination named by `solution` in the config, unless the user names a
+different target project. Look at that directory before writing: if it already
+holds an application, it **is** the application root and you extend it in place;
+if it holds applications in named subdirectories, add another. Do not impose a
+level of nesting the destination does not already use.
 
 Write the definition files and the wiring edits from step 5 in the same pass. An
 application generated without its registration chain is the failure this whole
@@ -214,8 +216,11 @@ records where their files are, not permission to edit them.
 
 ```bash
 ./.venv/Scripts/python.exe .claude/skills/pyapp/scripts/smoke.py \
-    --app <app-name> --python <interpreter> <generated files>
+    [--app <subdirectory>] --python <interpreter> <generated files>
 ```
+
+Paths are relative to the application root. Omit `--app` when the solution
+directory is itself that root.
 
 `IMPORTS` catches the loud failures. `REACHABLE` catches the quiet one — a class
 nothing imports, which is the failure step 5 exists to prevent.
