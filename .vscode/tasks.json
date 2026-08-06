@@ -1,0 +1,79 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "shell",
+      "label": "run solution.school/webapi (dev)",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe -m webapi.main",
+      "options": {
+        "cwd": "${workspaceFolder}/solution.school",
+        "env": {
+          "ENVIRONMENT": "dev"
+        }
+      },
+      "hide": false
+    },
+
+    {
+      "type": "shell",
+      "label": "run solution.school/webapp (dev)",
+      "command": "npm run start:dev",
+      "options": {
+        "cwd": "${workspaceFolder}/solution.school/webapp"
+      },
+      "hide": false
+    },
+
+    {
+      "type": "shell",
+      "label": "run solution.school/webapi (prod)",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe -m webapi.main",
+      "options": {
+        "cwd": "${workspaceFolder}/solution.school",
+        "env": {
+          "ENVIRONMENT": "prod"
+        }
+      },
+      "hide": false
+    },
+
+    {
+      "type": "shell",
+      "label": "run solution.school/webapp (prod)",
+      "command": "npm run start:prod",
+      "options": {
+        "cwd": "${workspaceFolder}/solution.school/webapp"
+      },
+      "hide": false
+    },
+
+    {
+      "type": "shell",
+      "label": "run solution.school/chrome",
+      "command": "start http://localhost:5173",
+      "hide": false
+    },
+
+    {
+      "type": "shell",
+      "label": "run solution.school/[webapi+webapp+chrome] (dev)",
+      "dependsOn": [
+        "run solution.school/webapi (dev)",
+        "run solution.school/webapp (dev)",
+        "run solution.school/chrome"
+      ],
+      "problemMatcher": []
+    },
+
+    {
+      "type": "shell",
+      "label": "run solution.school/[webapi+webapp+chrome] (prod)",
+      "dependsOn": [
+        "run solution.school/webapi (prod)",
+        "run solution.school/webapp (prod)",
+        "run solution.school/chrome"
+      ],
+      "problemMatcher": []
+    }
+  ]
+}

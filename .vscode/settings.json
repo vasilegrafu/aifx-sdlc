@@ -2,13 +2,21 @@
     "editor.minimap.enabled": false,
 
     "files.exclude": {
-        "**/__pycache__": true
+        "**/__pycache__": true,
+        "**/.pytest_cache": true
+    },
+
+    "terminal.integrated.env.windows": {
+        "ENVIRONMENT": "dev",
+        "PYTHONPATH": "${env:PYTHONPATH};${workspaceFolder}/solution.school"
     },
 
     "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+    "python.testing.cwd": "${workspaceFolder}/solution.school",
     "python.testing.pytestArgs": [
-        "solution.university"
+        "."
     ],
     "python.testing.unittestEnabled": false,
-    "python.testing.pytestEnabled": true,
+    "python.testing.pytestEnabled": true
 }
