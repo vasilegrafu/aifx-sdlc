@@ -13,6 +13,17 @@
 
     {
       "type": "shell",
+      "label": "export solution.school/openapi.json",
+      "command": "${workspaceFolder}/.venv/Scripts/python.exe -m webapi.export_openapi",
+      "options": {
+        "cwd": "${workspaceFolder}/solution.school"
+      },
+      "problemMatcher": [],
+      "hide": false
+    },
+
+    {
+      "type": "shell",
       "label": "run solution.school/webapp",
       "command": "npm run start",
       "options": {

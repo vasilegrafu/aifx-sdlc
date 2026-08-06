@@ -29,3 +29,4 @@ class Teacher(BaseDatabaseModel):
     first_name: Mapped[str] = mapped_column(String(128))
     last_name: Mapped[str] = mapped_column(String(128))
     email: Mapped[Optional[str]] = mapped_column(String(256))
+

@@ -27,3 +27,4 @@ class Subject(BaseDatabaseModel):
     code: Mapped[str] = mapped_column(String(16))
     name: Mapped[str] = mapped_column(String(256))
     description: Mapped[Optional[str]] = mapped_column(String(2048))
+

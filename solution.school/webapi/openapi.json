@@ -572,8 +572,7 @@
         "required": [
           "id"
         ],
-        "title": "DeleteStudentDataByIdRequest",
-        "x-schema-uuid": "c783d7b0-5224-4e44-a7ba-2355bae1302a"
+        "title": "DeleteStudentDataByIdRequest"
       },
       "DeleteStudentDataByIdResponse": {
         "properties": {
@@ -615,8 +614,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "DeleteStudentDataByIdResponse",
-        "x-schema-uuid": "847a3116-ab17-4ea1-b6ea-e05123bb7fb0"
+        "title": "DeleteStudentDataByIdResponse"
       },
       "FilteringSpec": {
         "properties": {
@@ -710,8 +708,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "FormClassData",
-        "x-schema-uuid": "362b6dd6-1cfa-48c9-93a4-807687b73ade"
+        "title": "FormClassData"
       },
       "GetFormClassDataListRequest": {
         "properties": {
@@ -738,8 +735,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "GetFormClassDataListRequest",
-        "x-schema-uuid": "774139d7-af5b-4296-8526-e27b0d44abb8"
+        "title": "GetFormClassDataListRequest"
       },
       "GetFormClassDataListResponse": {
         "properties": {
@@ -792,15 +788,13 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetFormClassDataListResponse",
-        "x-schema-uuid": "b7cc486f-fdc9-44ad-b8ab-e13a1bb25a16"
+        "title": "GetFormClassDataListResponse"
       },
       "GetNewStudentDataRequest": {
         "properties": {},
         "additionalProperties": false,
         "type": "object",
-        "title": "GetNewStudentDataRequest",
-        "x-schema-uuid": "556b2fb5-1f9c-4b7f-bb35-34cd4c4dce98"
+        "title": "GetNewStudentDataRequest"
       },
       "GetNewStudentDataResponse": {
         "properties": {
@@ -849,8 +843,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetNewStudentDataResponse",
-        "x-schema-uuid": "d313a609-d266-4a17-abd4-a01029e509a5"
+        "title": "GetNewStudentDataResponse"
       },
       "GetSchoolYearDataListRequest": {
         "properties": {
@@ -877,8 +870,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "GetSchoolYearDataListRequest",
-        "x-schema-uuid": "8b469ca9-9874-4ab0-9f25-1c81e10ca821"
+        "title": "GetSchoolYearDataListRequest"
       },
       "GetSchoolYearDataListResponse": {
         "properties": {
@@ -931,8 +923,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetSchoolYearDataListResponse",
-        "x-schema-uuid": "e1e9d793-5b3f-4d21-9415-24de405ad75d"
+        "title": "GetSchoolYearDataListResponse"
       },
       "GetStudentDataByIdRequest": {
         "properties": {
@@ -947,8 +938,7 @@
         "required": [
           "id"
         ],
-        "title": "GetStudentDataByIdRequest",
-        "x-schema-uuid": "2c765628-b3ad-4919-9d25-40113d0a09fa"
+        "title": "GetStudentDataByIdRequest"
       },
       "GetStudentDataByIdResponse": {
         "properties": {
@@ -997,8 +987,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetStudentDataByIdResponse",
-        "x-schema-uuid": "56c6507e-ce21-4766-8b78-2b64829d2bf9"
+        "title": "GetStudentDataByIdResponse"
       },
       "GetStudentDataListRequest": {
         "properties": {
@@ -1025,8 +1014,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "GetStudentDataListRequest",
-        "x-schema-uuid": "a2d5fd62-b53b-4a60-ba0f-ad16b04de90a"
+        "title": "GetStudentDataListRequest"
       },
       "GetStudentDataListResponse": {
         "properties": {
@@ -1079,8 +1067,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetStudentDataListResponse",
-        "x-schema-uuid": "68f19971-b8aa-4270-b0fe-6ccec712e397"
+        "title": "GetStudentDataListResponse"
       },
       "GetStudentDataPageRequest": {
         "properties": {
@@ -1117,8 +1104,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "GetStudentDataPageRequest",
-        "x-schema-uuid": "b5b76c1f-d314-47b3-a26c-9de63b90d644"
+        "title": "GetStudentDataPageRequest"
       },
       "GetStudentDataPageResponse": {
         "properties": {
@@ -1175,8 +1161,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetStudentDataPageResponse",
-        "x-schema-uuid": "cb8e8380-1c67-4810-abfa-36c6a4c27fe3"
+        "title": "GetStudentDataPageResponse"
       },
       "GetSubjectDataListRequest": {
         "properties": {
@@ -1203,8 +1188,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "GetSubjectDataListRequest",
-        "x-schema-uuid": "1e9e42ef-640d-49e1-82cc-52dbfb78a972"
+        "title": "GetSubjectDataListRequest"
       },
       "GetSubjectDataListResponse": {
         "properties": {
@@ -1257,8 +1241,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetSubjectDataListResponse",
-        "x-schema-uuid": "40869952-5740-4233-91d9-b9c4f57f5a73"
+        "title": "GetSubjectDataListResponse"
       },
       "GetTeacherDataListRequest": {
         "properties": {
@@ -1285,8 +1268,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "GetTeacherDataListRequest",
-        "x-schema-uuid": "1ecf4b80-91e4-46d1-824a-7020a0e3487e"
+        "title": "GetTeacherDataListRequest"
       },
       "GetTeacherDataListResponse": {
         "properties": {
@@ -1339,8 +1321,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "GetTeacherDataListResponse",
-        "x-schema-uuid": "9a9e78f0-57ce-41d4-a901-f082a7f835f6"
+        "title": "GetTeacherDataListResponse"
       },
       "HTTPValidationError": {
         "properties": {
@@ -1433,8 +1414,7 @@
         "required": [
           "data"
         ],
-        "title": "SaveStudentDataRequest",
-        "x-schema-uuid": "c78a4fef-481e-452a-914b-5f6230390a98"
+        "title": "SaveStudentDataRequest"
       },
       "SaveStudentDataResponse": {
         "properties": {
@@ -1476,8 +1456,7 @@
           "has_warnings",
           "has_errors"
         ],
-        "title": "SaveStudentDataResponse",
-        "x-schema-uuid": "f87e7681-fd9c-4bd4-9ae1-3410ccfdb19e"
+        "title": "SaveStudentDataResponse"
       },
       "SchoolYearData": {
         "properties": {
@@ -1531,8 +1510,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "SchoolYearData",
-        "x-schema-uuid": "1261c60b-e5ab-4071-b1e3-4249605ed59a"
+        "title": "SchoolYearData"
       },
       "SortingSpec": {
         "properties": {
@@ -1648,8 +1626,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "StudentData",
-        "x-schema-uuid": "a534dccd-e59d-4b60-97ac-a19a3d1361b7"
+        "title": "StudentData"
       },
       "SubjectData": {
         "properties": {
@@ -1701,8 +1678,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "SubjectData",
-        "x-schema-uuid": "37b98006-4ff7-4b1f-ad10-e91bbc1e6b38"
+        "title": "SubjectData"
       },
       "TeacherData": {
         "properties": {
@@ -1765,8 +1741,7 @@
         },
         "additionalProperties": false,
         "type": "object",
-        "title": "TeacherData",
-        "x-schema-uuid": "f1a387c6-ef2a-4be6-8243-d9b59d699102"
+        "title": "TeacherData"
       },
       "ValidationError": {
         "properties": {

@@ -32,3 +32,13 @@ class Enrolment(BaseDatabaseModel):
 
     enrolled_on: Mapped[date] = mapped_column(Date)
     status: Mapped[str] = mapped_column(String(8))
+
+    # DEPARTURE from atlas: atlas declares foreign keys and no relationship().
+    # Only the many-to-one direction is declared, and eagerly. session_injector
+    # closes the session per call, so anything not loaded by that query is
+    # unreachable -- a lazy relationship raises DetachedInstanceError at every
+    # caller. The collection direction is deliberately absent: declaring it both
+    # ways makes the eager loads cycle, and the controllers already answer it
+    # (StudentDbCtrl.get_by_form_class_id, EnrolmentDbCtrl.get_by_student_id).
+    student: Mapped['Student'] = relationship(lazy='selectin')
+    subject: Mapped['Subject'] = relationship(lazy='selectin')
