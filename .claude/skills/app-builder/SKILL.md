@@ -429,10 +429,12 @@ already says:
 scripts/query.py proof --name <index-name>
 ```
 
-It reports the test configuration, the test directories, the interpreter in the
-tree, and every module guarded by `__main__` — which is where a schema
-generator or migration entry point shows up. Run the one that would exercise
-what you generated. If there is none, say so plainly rather than calling the
+It reports, **per language and including the generated target**: the test
+configuration wherever it lives, the toolchain that can actually run it, the
+rung-1 command, any npm scripts, and the entry points — ranked, so a schema
+generator or migration outranks a module with a demo block at the bottom. Run
+the one that would exercise what you generated. If there is none, say so
+plainly rather than calling the
 work verified.
 
 ### 9. Report
