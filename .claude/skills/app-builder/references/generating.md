@@ -111,7 +111,7 @@ matches both, that is a genuine question for the user.
 `exemplars` on the narrowed set then gives a typical file worth copying. On an
 un-narrowed set it gives a typical file worth nothing.
 
-## Do not improve the exemplar
+## Do not improve the exemplar -- silently
 
 The other way to get this wrong is the opposite of copying a mistake: copying it
 correctly and then making it nicer.
@@ -132,6 +132,15 @@ So: **when your version is more ergonomic than the exemplar, find a caller befor
 you keep it.** `imports <Symbol> --name <index>` lists them, and one real call
 site settles in a second what an argument about taste will not settle at all.
 If the improvement survives that, keep it and say you deviated.
+
+That rule is about *acting*, not about *mentioning*, and the distinction matters
+because for a long time this section suppressed both. Reproducing the source
+without comment is right; reproducing it without ever telling the user there was
+an alternative is not. Where the source simply does not do something -- no
+timestamps, no relationships, no delete policy -- there is no `VARIES` row to
+find and no question gets asked, because an absence leaves no record in the
+index at all. `references/decisions.md` is the checklist for those, per layer
+kind. Propose, mark it as a departure, and let the user decide.
 
 ## Working from one directory is not working
 

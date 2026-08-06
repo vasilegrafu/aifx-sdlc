@@ -334,6 +334,15 @@ single glob matches both.
 5. **Wiring** — when step 5 reveals a chain with more than one reasonable shape.
 6. **After generating** — the numbered list in step 9.
 
+**And the decisions the source never made.** `questions` reports what is *in*
+the index, so it can raise a fork the source contains and never an absence:
+something the source does not do at all leaves no record to rank. Those are the
+expensive ones -- no relationships, no delete policy, no timestamps -- and
+`references/decisions.md` lists them per layer kind. Check it against the layer
+being generated, raise what is both absent and load-bearing, and mark each one
+as a departure from the source so the user is choosing rather than being
+steered.
+
 **`questions` in `config.json` is a policy, not a count:**
 
 - **`many`** — ask at every genuine decision point, however many that is.
@@ -576,6 +585,9 @@ the nearest layer as a source of conventions instead.
 - `MANUAL.md` is written for the person, not for you: what each command answers,
   how to read `shape` output, and what the tool cannot do. Point them at it when
   they ask how to run something themselves.
+- `references/decisions.md` holds the decisions each kind of layer normally
+  faces, including the ones the source never made -- an absence produces no
+  index record, so nothing else can surface it.
 - `references/generating.md` holds the detail: turning prose into a spec,
   reading `shape` output closely, what to do when exemplars conflict inside one
   codebase, why not to improve a signature that looks clumsy, why code that
