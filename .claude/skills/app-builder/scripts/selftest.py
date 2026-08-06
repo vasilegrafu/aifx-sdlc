@@ -99,6 +99,25 @@ export function helper(n) { return String(n); }
   {% blocktranslate %}not a block{% endblocktranslate %}
 {% endblock %}
 '''),
+    # A stylesheet, held to the same contract: `@extend` is a base, `@mixin` a
+    # method, `@include` a call, `$var` and `--token` attributes with values.
+    "css": ("fixture.scss", '''
+@import "base";
+
+$widget-size: 1rem;
+
+%placeholder { color: red; }
+
+@mixin widget-render($target) {
+  @include helper($target);
+}
+
+.widget {
+  @extend %placeholder;
+  --#{$prefix}widget-size: #{$widget-size};
+  @include widget-render(1);
+}
+'''),
     "csharp": ("Fixture.cs", '''
 using System.Collections.Generic;
 
@@ -185,6 +204,22 @@ def check(language, extractor, root: Path) -> list[str]:
                                 f"saw {sorted(calls)}")
         if not any("helper" in i.lower() for i in invokes):
             problems.append(f"{language}: bare call not recorded, saw {sorted(invokes)}")
+
+    if language == "css":
+        # The trap real design systems set: every token is written
+        # `--#{$prefix}name`, and a pattern wanting `--[a-z]` finds almost none
+        # of them. The interpolation is stripped from the name so that one
+        # token groups as one across a whole system.
+        attrs = {a["name"] for r in records if r.get("k") == "class"
+                 for a in r["attrs"]}
+        if "--widget-size" not in attrs:
+            problems.append(f"css: interpolated custom property not recorded as "
+                            f"`--widget-size`; got {sorted(attrs)}")
+        values = {a["name"]: a["ann"] for r in records if r.get("k") == "class"
+                  for a in r["attrs"]}
+        if values.get("$widget-size") != "1rem":
+            problems.append(f"css: variable lost its value, got "
+                            f"{values.get('$widget-size')!r}")
 
     if language == "html":
         # The two traps real templates set, asserted rather than remembered.

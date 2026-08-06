@@ -467,10 +467,12 @@ the nearest layer as a source of conventions instead.
 - **Python, TypeScript, JavaScript and C#** — four languages, four extractors,
   each on a real parser rather than on pattern matching, and every record says
   which language produced it and at what fidelity. **Django and Jinja HTML
-  templates** are read too, at `heuristic` fidelity: `{% extends %}` is a base
-  class, `{% block %}` a method, `{% include %}` a call, so `shape` and
-  `imports --chain` work on a template layer unchanged — and template
-  inheritance is a registration chain like any other. **`.vue`, `.svelte`,
+  templates and CSS/SCSS stylesheets** are read too, at `heuristic` fidelity,
+  by mapping onto the same records: `{% extends %}` and `@extend` are base
+  classes, `{% block %}` and `@mixin` are methods, `{% include %}` and
+  `@include` are calls. Every command works on them unchanged, and both carry
+  a registration chain that fails silently — a block nobody fills, a partial
+  nobody imports. **`.vue`, `.svelte`,
   `.razor` and `.cshtml`** are read as well, but they are not languages: a
   segmenter splits each file into the languages it holds and the ordinary
   extractors read the spans. Their markup and styles are reported as not

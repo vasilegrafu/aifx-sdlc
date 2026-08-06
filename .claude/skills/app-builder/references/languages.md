@@ -5,8 +5,8 @@ The index schema is the seam. Everything downstream — `layers`, `find`, `shape
 produced them. A language is added by producing records, not by changing queries.
 
 **Python, TypeScript, JavaScript and C# are implemented at AST fidelity**, one
-extractor each, plus **HTML templates at heuristic fidelity** and the container
-formats below. Every one was validated against a codebase nobody wrote for
+extractor each, plus **HTML templates and stylesheets at heuristic fidelity**
+and the container formats below. Every one was validated against a codebase nobody wrote for
 the test, and the sections below record what that found — which was, every time,
 something a fixture would have agreed with me about.
 
@@ -50,25 +50,41 @@ can only be read correctly if the reader knows which they are looking at.
 
 ## The mapping
 
-|  | Python | TypeScript | JavaScript | C# | HTML templates |
-|---|---|---|---|---|---|
-| parser | stdlib `ast`, in-process | TS compiler API, via node | acorn, via node | Roslyn, via dotnet | regex — **heuristic** |
-| `class` record | class | class, interface, type alias | class | class, struct, interface, record | the template itself |
-| `bases` | base classes | `extends`, `implements` | `extends` | base type + interfaces | `{% extends %}` |
-| `decorators` | decorators | decorators | — | attributes | — |
-| `attrs` | annotated assignments | interface fields, class properties | class fields, typed by JSDoc | fields and properties | — |
-| `methods` | def / async def | methods, arrow properties | methods | methods | `{% block %}` |
-| `imports` | import, from-import | import, `import type` | import **and `require`** | using | extends, include, load, `<script src>` |
-| `exports` | `__all__` or public names | export, export default | export **and `module.exports`** | none — namespaces | the blocks it offers |
-| `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` | — |
-| `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` | `{% include %}` |
-| barrel file | `__init__.py` | `index.ts` | `index.js` | none | none — inheritance is the chain |
+|  | Python | TypeScript | JavaScript | C# |
+|---|---|---|---|---|
+| parser | stdlib `ast`, in-process | TS compiler API, via node | acorn, via node | Roslyn, via dotnet |
+| `class` record | class | class, interface, type alias | class | class, struct, interface, record |
+| `bases` | base classes | `extends`, `implements` | `extends` | base type + interfaces |
+| `decorators` | decorators | decorators | — | attributes |
+| `attrs` | annotated assignments | interface fields, class properties | class fields, typed by JSDoc | fields and properties |
+| `methods` | def / async def | methods, arrow properties | methods | methods |
+| `imports` | import, from-import | import, `import type` | import **and `require`** | using |
+| `exports` | `__all__` or public names | export, export default | export **and `module.exports`** | none — namespaces |
+| `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` |
+| `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` |
+| barrel file | `__init__.py` | `index.ts` | `index.js` | none |
 | rung 1 | `smoke.py` | `tsc --noEmit` | `node --check` | `dotnet build` |
 | rung 2 | `python -m <entry>` | `npm run build` | `npm run build` | `dotnet run` |
 | rung 4 | pytest | vitest, jest | vitest, jest | `dotnet test` |
 
 Rung 3 is absent from that table on purpose: it is a throwaway script exercising
 the guarantee that fails silently, and no toolchain provides it in any language.
+
+Markup and styles map onto the same records, at `heuristic` fidelity — no new
+record kind, no new query, and every existing command works on them unchanged:
+
+|  | HTML templates | Stylesheets |
+|---|---|---|
+| parser | regex | regex + a brace scanner |
+| `class` record | the template | the stylesheet |
+| `bases` | `{% extends %}` | `@extend` |
+| `attrs` | — | `$vars` and `--tokens`, **with their values** |
+| `methods` | `{% block %}` | `@mixin`, `@function` |
+| `imports` | extends, include, load, `<script src>` | `@import`, `@use`, `@forward` |
+| `exports` | the blocks it offers | its mixins and variables |
+| `invokes` | `{% include %}` | `@include` |
+| barrel file | none — inheritance is the chain | none — `@import` is the chain |
+| what fails silently | a block nobody fills | a partial nobody imports |
 
 ## What breaks, per language
 
@@ -234,6 +250,43 @@ Two traps, both from the 393 real templates rather than from imagination:
 A page with no directives and no assets gets a module record but no class
 record. Static markup is not a convention, and one record per marketing page
 would drown the layer that has one.
+
+### Stylesheets — a design system's contract is its tokens
+
+CSS, SCSS and Less read as above. `ATTRIBUTE DETAIL` is the section that earns
+it, because a token's *value* is the contract:
+
+```
+  --card-spacer-y        #{$card-spacer-y} 100%
+  --card-border-radius   #{$card-border-radius} 100%
+```
+
+**Every design token is written interpolated.** Bootstrap spells them
+`--#{$prefix}card-spacer-y`, and a pattern wanting `--[a-z]` finds **15** of
+what are really **548** — reporting a token layer that does not exist. The
+interpolation is stripped from the recorded name so one token groups as one
+across the whole system, which is why the output above reads `--card-spacer-y`.
+
+**A partial nobody imports does nothing**, silently: no error, no style, a page
+that merely looks wrong. `imports <partial>` answers it, and `@import` is the
+chain — there is no barrel file.
+
+**A mixin defined but never included is dead.** Bootstrap defines 80 and
+includes 62 distinct ones. `calls --on <mixin>` reports this, but read the
+caveat it prints: a public mixin is called from outside the index, and absence
+of a caller is not absence of a caller.
+
+**`shape` is weaker here than elsewhere, and that is the honest summary.** Model
+classes and controllers are deliberately alike, so `ALWAYS` means something.
+Stylesheets are deliberately *different* from one another — `_card.scss` and
+`_modal.scss` share almost nothing — so `shape` across a whole `scss/` directory
+returns a mush of one-percent rows. It is worth running on a set that really is
+a family (component partials, a token file) and not otherwise. The durable value
+here is `imports`, `calls` and `ATTRIBUTE DETAIL`, not `ALWAYS`.
+
+`.sass` is deliberately excluded: it is indentation-based rather than braced, so
+the scanner would read it wrongly rather than not at all. It is reported as not
+covered.
 
 ## Container formats: one file, several languages
 

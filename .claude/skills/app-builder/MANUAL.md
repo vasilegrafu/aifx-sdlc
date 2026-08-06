@@ -64,6 +64,7 @@ on this machine is the failure worth catching first.
 | JavaScript, `.js` `.jsx` `.mjs` `.cjs` | `node` + `node_modules/acorn` | ships inside eslint, vite, webpack, rollup |
 | C# | the .NET SDK | the adapter builds itself on first use, ~20s, then caches |
 | HTML templates, `.html` `.jinja` `.j2` | nothing | Django and Jinja, read by regex — `heuristic` fidelity |
+| Stylesheets, `.css` `.scss` `.less` | nothing | tokens, mixins and `@import`; `.sass` is not read |
 | Vue `.vue`, Svelte `.svelte` | whatever the script block is written in | split first, then read as TypeScript or JavaScript |
 | Razor `.razor` `.cshtml` | the .NET SDK | only the `@code` block is C#; the rest is markup |
 
@@ -222,6 +223,15 @@ Crosses every call made on that name against the members it defines. This found
 four live call sites in a real codebase for a method that has never existed.
 Read the C# caveat below before trusting it there.
 
+The same command answers two neighbouring questions, and says which it is
+answering. A name used as a *receiver* gets the check above. A name **invoked
+directly** — a hook, a mixin, a plain function — has no member list to check, so
+it reports the call sites instead: `calls --on useState` finds every component
+using it, `calls --on media-breakpoint-up` every stylesheet including it. And a
+name that is defined but neither called nor invoked is reported as dead, with a
+warning worth heeding: a public mixin or an exported helper is called from
+outside the index, and absence of a caller there is not absence of a caller.
+
 **Which pages break if I change this base template?**
 
 ```bash
@@ -325,7 +335,7 @@ rather than counting them as passing.
 calls. It does not know what it means.
 
 **Python, TypeScript, JavaScript and C# only** — plus Django/Jinja HTML
-templates, and `.vue`, `.svelte`, `.razor` and `.cshtml`, which are split into
+templates, CSS/SCSS stylesheets, and `.vue`, `.svelte`, `.razor` and `.cshtml`, which are split into
 those languages rather than parsed in their own right. Anything else is skipped,
 and reported as skipped.
 

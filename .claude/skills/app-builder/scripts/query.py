@@ -322,6 +322,15 @@ LANGUAGES = {
         "rung1": "node --check <file>, or the project's lint script",
         "toolchain": ("node_modules/acorn/package.json",),
     },
+    "css": {
+        "proof_files": ("package.json", "postcss.config.js", ".stylelintrc.json"),
+        # No barrel file: a partial is named directly by whatever imports it,
+        # so the chain is `@import`, and a partial nobody imports is dead.
+        "barrel": None,
+        "entry": "the stylesheet that imports the partials",
+        "rung1": "the project's sass/postcss build, or stylelint",
+        "toolchain": ("node_modules/sass/package.json",),
+    },
     "html": {
         # A template layer proves itself through whatever renders it, so its
         # proof files are the web framework's, not its own.
@@ -857,9 +866,24 @@ def cmd_calls(args):
     called: dict[str, list] = defaultdict(list)
     defined: set[str] = set()
     found_class = None
+    # Where `on` is *defined*, as a class, a method or a function. Needed for
+    # the opposite question to the one below: not "is this call real" but "is
+    # this definition reached by anything" -- a mixin nobody includes, a helper
+    # nobody imports. Both are silent.
+    defined_at: list[str] = []
+    # `on` invoked as itself rather than as a receiver. Every language records
+    # both, and a mixin, a hook or a plain function is only ever the second
+    # kind -- so a check that reads `calls` alone concludes that nothing uses
+    # `media-breakpoint-up`, which is included 482 times.
+    direct: list[str] = []
 
     for rec in read_index(args.name):
+        if rec["k"] == "func" and rec.get("name") == on:
+            defined_at.append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
         if rec["k"] == "class":
+            for m in rec["methods"]:
+                if m.get("name") == on:
+                    defined_at.append(f"{rec['repo']}/{rec['path']}:{m['line']}")
             if rec["name"] == on and (not args.defined_in
                                       or fnmatch.fnmatch(rec["path"], args.defined_in)):
                 found_class = rec
@@ -871,14 +895,43 @@ def cmd_calls(args):
                     root, _, attr = call.partition(".")
                     if root == on and matches(rec, args):
                         called[attr].append(f"{rec['repo']}/{rec['path']}:{m['line']}")
+                if on in m.get("invokes", ()) and matches(rec, args):
+                    direct.append(f"{rec['repo']}/{rec['path']}:{m['line']}")
         elif rec["k"] == "func":
             for call in rec.get("calls", ()):
                 root, _, attr = call.partition(".")
                 if root == on and matches(rec, args):
                     called[attr].append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
+            if on in rec.get("invokes", ()) and matches(rec, args):
+                direct.append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
 
     if not called:
-        return print(f"nothing calls anything on {on!r}")
+        if found_class is not None:
+            defined_at.insert(0, f"{found_class['repo']}/{found_class['path']}"
+                                 f":{found_class['line']}")
+        if direct:
+            print(f"{on} is invoked directly, not as a receiver "
+                  f"({len(direct)} call sites)\n")
+            for site in direct[: args.limit]:
+                print(f"  {site}")
+            if len(direct) > args.limit:
+                print(f"  ... {len(direct) - args.limit} more (--limit)")
+            if defined_at:
+                print("\n  defined at " + ", ".join(defined_at[:3]))
+            return print("\n  Nothing is called *on* it, so there is no member "
+                         "list to check against.")
+        if not defined_at:
+            return print(f"nothing calls anything on {on!r}, and nothing in this"
+                         f" index defines it either.")
+        print(f"{on} is defined, and nothing in this index calls or invokes it.\n")
+        for site in defined_at[: args.limit]:
+            print(f"  defined  {site}")
+        if len(defined_at) > args.limit:
+            print(f"  ... {len(defined_at) - args.limit} more")
+        return print(
+            "\n  Dead here -- but say so carefully. A public mixin, an exported"
+            "\n  helper or a plugin entry point is called from outside this"
+            "\n  index, and absence of a caller is not absence of a caller.")
 
     print(f"{len(called)} distinct methods called on {on}"
           f"  ({sum(len(v) for v in called.values())} call sites)\n")

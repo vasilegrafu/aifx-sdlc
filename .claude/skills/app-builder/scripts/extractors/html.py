@@ -52,7 +52,7 @@ SCRIPT_SRC = re.compile(r'<script[^>]*\ssrc\s*=\s*["\']([^"\']+)["\']', re.I)
 LINK_HREF = re.compile(r'<link[^>]*\shref\s*=\s*["\']([^"\']+)["\']', re.I)
 
 
-def available(root=None) -> str | None:
+def available(root: Path | None = None) -> str | None:
     """Always usable: no toolchain, only the standard library."""
     return None
 
