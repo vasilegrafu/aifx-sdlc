@@ -1,0 +1,1813 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "School WebAPI",
+    "description": "FastAPI-based web API using devfx framework",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "Health"
+        ],
+        "summary": "Health",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students/get-page": {
+      "post": {
+        "tags": [
+          "StudentData"
+        ],
+        "summary": "Get Page",
+        "operationId": "getPage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetStudentDataPageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetStudentDataPageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students/get-list": {
+      "post": {
+        "tags": [
+          "StudentData"
+        ],
+        "summary": "Get List",
+        "operationId": "getList",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetStudentDataListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetStudentDataListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students/get-by-id": {
+      "post": {
+        "tags": [
+          "StudentData"
+        ],
+        "summary": "Get By Id",
+        "operationId": "getById",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetStudentDataByIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetStudentDataByIdResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students/get-new": {
+      "post": {
+        "tags": [
+          "StudentData"
+        ],
+        "summary": "Get New",
+        "operationId": "getNew",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetNewStudentDataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetNewStudentDataResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students/save": {
+      "post": {
+        "tags": [
+          "StudentData"
+        ],
+        "summary": "Save",
+        "operationId": "save",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveStudentDataRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SaveStudentDataResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/students/delete-by-id": {
+      "post": {
+        "tags": [
+          "StudentData"
+        ],
+        "summary": "Delete By Id",
+        "operationId": "deleteById",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteStudentDataByIdRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeleteStudentDataByIdResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/form-classes/get-all": {
+      "post": {
+        "tags": [
+          "FormClassData"
+        ],
+        "summary": "Get All",
+        "operationId": "getAllFormClasses",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetFormClassDataListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetFormClassDataListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/subjects/get-all": {
+      "post": {
+        "tags": [
+          "SubjectData"
+        ],
+        "summary": "Get All",
+        "operationId": "getAllSubjects",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetSubjectDataListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSubjectDataListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/school-years/get-all": {
+      "post": {
+        "tags": [
+          "SchoolYearData"
+        ],
+        "summary": "Get All",
+        "operationId": "getAllSchoolYears",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetSchoolYearDataListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetSchoolYearDataListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/teachers/get-all": {
+      "post": {
+        "tags": [
+          "TeacherData"
+        ],
+        "summary": "Get All",
+        "operationId": "getAllTeachers",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GetTeacherDataListRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetTeacherDataListResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "DataPageSpecs": {
+        "properties": {
+          "page_size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page Size",
+            "description": "Number of items per page"
+          },
+          "page_number": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page Number",
+            "description": "Current page number (1-based)"
+          },
+          "total_items_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total Items Count",
+            "description": "Total number of items across all pages"
+          },
+          "total_pages_count": {
+            "type": "integer",
+            "title": "Total Pages Count",
+            "description": "Total number of pages (calculated)",
+            "readOnly": true
+          },
+          "has_next_page": {
+            "type": "boolean",
+            "title": "Has Next Page",
+            "description": "Whether there is a next page (calculated)",
+            "readOnly": true
+          },
+          "has_previous_page": {
+            "type": "boolean",
+            "title": "Has Previous Page",
+            "description": "Whether there is a previous page (calculated)",
+            "readOnly": true
+          },
+          "next_page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Page Number",
+            "description": "Next page number, capped at total pages (calculated)",
+            "readOnly": true
+          },
+          "previous_page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Page Number",
+            "description": "Previous page number, capped at 1 (calculated)",
+            "readOnly": true
+          },
+          "is_first_page": {
+            "type": "boolean",
+            "title": "Is First Page",
+            "description": "Whether the current page is the first page (calculated)",
+            "readOnly": true
+          },
+          "is_last_page": {
+            "type": "boolean",
+            "title": "Is Last Page",
+            "description": "Whether the current page is the last page (calculated)",
+            "readOnly": true
+          },
+          "first_data_item_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Data Item Index",
+            "description": "Index of the first data item on the current page (calculated, 0-based)",
+            "readOnly": true
+          },
+          "last_data_item_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Data Item Index",
+            "description": "Index of the last data item on the current page (calculated, 0-based)",
+            "readOnly": true
+          }
+        },
+        "type": "object",
+        "required": [
+          "page_size",
+          "page_number",
+          "total_items_count",
+          "total_pages_count",
+          "has_next_page",
+          "has_previous_page",
+          "next_page_number",
+          "previous_page_number",
+          "is_first_page",
+          "is_last_page",
+          "first_data_item_index",
+          "last_data_item_index"
+        ],
+        "title": "DataPageSpecs",
+        "description": "Pagination specifications and metadata"
+      },
+      "DeleteStudentDataByIdRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "DeleteStudentDataByIdRequest",
+        "x-schema-uuid": "c783d7b0-5224-4e44-a7ba-2355bae1302a"
+      },
+      "DeleteStudentDataByIdResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "result": {
+            "$ref": "#/components/schemas/OperationResult",
+            "default": "SUCCESS"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "DeleteStudentDataByIdResponse",
+        "x-schema-uuid": "847a3116-ab17-4ea1-b6ea-e05123bb7fb0"
+      },
+      "FilteringSpec": {
+        "properties": {
+          "rule": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rule"
+          },
+          "args": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Args"
+          }
+        },
+        "type": "object",
+        "title": "FilteringSpec"
+      },
+      "FormClassData": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "school_year_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "School Year Id"
+          },
+          "form_tutor_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Form Tutor Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "year_group": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year Group"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "FormClassData",
+        "x-schema-uuid": "362b6dd6-1cfa-48c9-93a4-807687b73ade"
+      },
+      "GetFormClassDataListRequest": {
+        "properties": {
+          "filtering_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilteringSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sorting_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetFormClassDataListRequest",
+        "x-schema-uuid": "774139d7-af5b-4296-8526-e27b0d44abb8"
+      },
+      "GetFormClassDataListResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/FormClassData"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data List",
+            "description": "List of data items"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetFormClassDataListResponse",
+        "x-schema-uuid": "b7cc486f-fdc9-44ad-b8ab-e13a1bb25a16"
+      },
+      "GetNewStudentDataRequest": {
+        "properties": {},
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetNewStudentDataRequest",
+        "x-schema-uuid": "556b2fb5-1f9c-4b7f-bb35-34cd4c4dce98"
+      },
+      "GetNewStudentDataResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentData"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Response data"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetNewStudentDataResponse",
+        "x-schema-uuid": "d313a609-d266-4a17-abd4-a01029e509a5"
+      },
+      "GetSchoolYearDataListRequest": {
+        "properties": {
+          "filtering_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilteringSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sorting_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetSchoolYearDataListRequest",
+        "x-schema-uuid": "8b469ca9-9874-4ab0-9f25-1c81e10ca821"
+      },
+      "GetSchoolYearDataListResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SchoolYearData"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data List",
+            "description": "List of data items"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetSchoolYearDataListResponse",
+        "x-schema-uuid": "e1e9d793-5b3f-4d21-9415-24de405ad75d"
+      },
+      "GetStudentDataByIdRequest": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id"
+        ],
+        "title": "GetStudentDataByIdRequest",
+        "x-schema-uuid": "2c765628-b3ad-4919-9d25-40113d0a09fa"
+      },
+      "GetStudentDataByIdResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StudentData"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Response data"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetStudentDataByIdResponse",
+        "x-schema-uuid": "56c6507e-ce21-4766-8b78-2b64829d2bf9"
+      },
+      "GetStudentDataListRequest": {
+        "properties": {
+          "filtering_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilteringSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sorting_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetStudentDataListRequest",
+        "x-schema-uuid": "a2d5fd62-b53b-4a60-ba0f-ad16b04de90a"
+      },
+      "GetStudentDataListResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StudentData"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data List",
+            "description": "List of data items"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetStudentDataListResponse",
+        "x-schema-uuid": "68f19971-b8aa-4270-b0fe-6ccec712e397"
+      },
+      "GetStudentDataPageRequest": {
+        "properties": {
+          "filtering_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilteringSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sorting_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pagination_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaginationSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetStudentDataPageRequest",
+        "x-schema-uuid": "b5b76c1f-d314-47b3-a26c-9de63b90d644"
+      },
+      "GetStudentDataPageResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data_list": {
+            "items": {
+              "$ref": "#/components/schemas/StudentData"
+            },
+            "type": "array",
+            "title": "Data List",
+            "description": "List of data items for current page"
+          },
+          "page_specs": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DataPageSpecs"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pagination specifications and metadata"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetStudentDataPageResponse",
+        "x-schema-uuid": "cb8e8380-1c67-4810-abfa-36c6a4c27fe3"
+      },
+      "GetSubjectDataListRequest": {
+        "properties": {
+          "filtering_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilteringSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sorting_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetSubjectDataListRequest",
+        "x-schema-uuid": "1e9e42ef-640d-49e1-82cc-52dbfb78a972"
+      },
+      "GetSubjectDataListResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SubjectData"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data List",
+            "description": "List of data items"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetSubjectDataListResponse",
+        "x-schema-uuid": "40869952-5740-4233-91d9-b9c4f57f5a73"
+      },
+      "GetTeacherDataListRequest": {
+        "properties": {
+          "filtering_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FilteringSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sorting_spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SortingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GetTeacherDataListRequest",
+        "x-schema-uuid": "1ecf4b80-91e4-46d1-824a-7020a0e3487e"
+      },
+      "GetTeacherDataListResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "data_list": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/TeacherData"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Data List",
+            "description": "List of data items"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "GetTeacherDataListResponse",
+        "x-schema-uuid": "9a9e78f0-57ce-41d4-a901-f082a7f835f6"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "Message": {
+        "properties": {
+          "level": {
+            "$ref": "#/components/schemas/MessageLevel"
+          },
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "Message content"
+          }
+        },
+        "type": "object",
+        "required": [
+          "level",
+          "text"
+        ],
+        "title": "Message",
+        "description": "Structured message with level and text"
+      },
+      "MessageLevel": {
+        "type": "string",
+        "enum": [
+          "info",
+          "warning",
+          "error"
+        ],
+        "title": "MessageLevel",
+        "description": "Message severity level"
+      },
+      "OperationResult": {
+        "type": "string",
+        "enum": [
+          "SUCCESS",
+          "PARTIAL_SUCCESS",
+          "FAILURE"
+        ],
+        "title": "OperationResult",
+        "description": "Operation result status"
+      },
+      "PaginationSpec": {
+        "properties": {
+          "page_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Size"
+          },
+          "page_number": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Number"
+          }
+        },
+        "type": "object",
+        "title": "PaginationSpec"
+      },
+      "SaveStudentDataRequest": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StudentData"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "SaveStudentDataRequest",
+        "x-schema-uuid": "c78a4fef-481e-452a-914b-5f6230390a98"
+      },
+      "SaveStudentDataResponse": {
+        "properties": {
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            },
+            "type": "array",
+            "title": "Messages",
+            "description": "Response messages"
+          },
+          "result": {
+            "$ref": "#/components/schemas/OperationResult",
+            "default": "SUCCESS"
+          },
+          "has_infos": {
+            "type": "boolean",
+            "title": "Has Infos",
+            "description": "Check if response contains any informational messages",
+            "readOnly": true
+          },
+          "has_warnings": {
+            "type": "boolean",
+            "title": "Has Warnings",
+            "description": "Check if response contains any warning messages",
+            "readOnly": true
+          },
+          "has_errors": {
+            "type": "boolean",
+            "title": "Has Errors",
+            "description": "Check if response contains any error messages",
+            "readOnly": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "has_infos",
+          "has_warnings",
+          "has_errors"
+        ],
+        "title": "SaveStudentDataResponse",
+        "x-schema-uuid": "f87e7681-fd9c-4bd4-9ae1-3410ccfdb19e"
+      },
+      "SchoolYearData": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "starts_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Starts On"
+          },
+          "ends_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends On"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SchoolYearData",
+        "x-schema-uuid": "1261c60b-e5ab-4071-b1e3-4249605ed59a"
+      },
+      "SortingSpec": {
+        "properties": {
+          "by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "By"
+          },
+          "order": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Order"
+          }
+        },
+        "type": "object",
+        "title": "SortingSpec"
+      },
+      "StudentData": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "form_class_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Form Class Id"
+          },
+          "admission_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Admission Number"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "date_of_birth": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Of Birth"
+          },
+          "enrolled_on": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enrolled On"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "StudentData",
+        "x-schema-uuid": "a534dccd-e59d-4b60-97ac-a19a3d1361b7"
+      },
+      "SubjectData": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Code"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SubjectData",
+        "x-schema-uuid": "37b98006-4ff7-4b1f-ad10-e91bbc1e6b38"
+      },
+      "TeacherData": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "staff_number": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Number"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "TeacherData",
+        "x-schema-uuid": "f1a387c6-ef2a-4be6-8243-d9b59d699102"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}

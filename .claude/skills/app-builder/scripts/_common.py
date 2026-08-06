@@ -132,19 +132,33 @@ def configured_solution() -> dict:
             "is_target": True}
 
 
-def configured_questions(default: int = 3) -> int:
-    """How many questions may be asked *before* generating: a budget, not a level.
+QUESTION_MODES = ("many", "key", "none")
 
-    It governs interruption, not information. Whatever the number, every
-    generation still ends with the full list of choices made -- the dial only
-    decides how many of them are raised in advance instead of afterwards. Zero
-    means never interrupt: decide everything, and say what was decided.
+
+def configured_questions(default: str = "many") -> str:
+    """How eagerly to ask: a policy, not a count.
+
+    A count was the wrong axis. Capping at three does not stop the fourth
+    decision existing -- it makes it a silent guess, which is worse than a
+    question. What limits questions properly is that each one must be load
+    bearing *and* unanswerable from the codebase; the count was only ever a
+    crude proxy for that restraint.
+
+        many  -- ask at every genuine decision point, however many that is
+        key   -- ask only what is expensive to reverse
+        none  -- decide everything and report it
+
+    Older configs carried an integer. `0` still means none, and any other
+    number means `key`, so a config written against the previous design keeps
+    working rather than failing at a startup nobody expects to fail.
     """
     value = load_config().get("questions", default)
-    try:
-        return max(0, int(value))
-    except (TypeError, ValueError):
-        return default
+    if isinstance(value, bool):
+        return "many" if value else "none"
+    if isinstance(value, int):
+        return "none" if value == 0 else "key"
+    text = str(value).strip().lower()
+    return text if text in QUESTION_MODES else default
 
 
 def solution_dir() -> Path:
@@ -163,16 +177,33 @@ def workspace(name: str) -> Path:
     return skill_root() / ".data" / name
 
 
-def decisions_path(name: str) -> Path:
-    """Where the answers to disagreements live: `<skill>/decisions/<name>.md`.
+def decisions_path(scope: str = "solution") -> Path:
+    """Where an answer lives, which depends entirely on what it is an answer to.
 
-    Deliberately outside `.data/`. An index is derived from repositories and
-    rebuilds in seconds; an answer the user gave cannot be recovered from
-    anything, so it must not sit in the directory documented as safe to delete.
-    It holds decisions, not code read from anyone's repository, so unlike the
-    index it is meant to be committed.
+    A decision has a **scope**, and keying every answer by index name -- as this
+    did -- collapses three different things into one. "This app uses SQLite" was
+    recorded against the index `atlas` and would then have been applied, without
+    asking, to the next application generated from the same sources. That is the
+    bug this split exists to fix.
+
+        solution   -- true of this app and meaningless for the next one:
+                      the database it runs on, the layout it uses. Lives *in*
+                      the app, so a new solution starts clean by construction
+                      rather than by anyone remembering to clear a ledger.
+
+        preference -- how this user likes things done, across projects. Only
+                      ever written when they say so: "always", "every time".
+                      A preference inferred from one answer is the same bug in
+                      a longer-lived file.
+
+    A third kind is not stored at all. Most of what gets decided is visible in
+    the generated code -- the target is indexed, and `shape` reads it back. The
+    only thing a ledger genuinely adds is what the code *cannot* show: a
+    deliberate absence, and why. You cannot see a decision not to do something.
     """
-    return skill_root() / "decisions" / f"{name}.md"
+    if scope == "preference":
+        return skill_root() / "preferences.md"
+    return solution_dir() / ".decisions.md"
 
 
 def index_path(name: str) -> Path:

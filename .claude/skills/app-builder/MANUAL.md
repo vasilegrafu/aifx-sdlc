@@ -35,7 +35,8 @@ Point it at codebases in `config.json`, at the root of this repository:
     "repositories": [
       { "name": "atlas", "path": "D:/Dev.Work/project.finance/solution.atlas" }
     ],
-    "solution": "solution.university"
+    "solution": "solution.university",
+    "questions": "many"
   }
 }
 ```
@@ -45,25 +46,18 @@ Point it at codebases in `config.json`, at the root of this repository:
   holds a layer it **outranks the sources** for that layer: a convention it
   deliberately dropped will not be reintroduced from a source that still has it.
 - Either entry may take `"exclude": ["some/dir"]` for a tree that is not source.
-- **`questions`** — how many decisions may be put to you *before* code is
-  written. It is a budget, not a verbosity level: `3` means "ask me the three
-  that cost most to get wrong". Set it to `0` and nothing interrupts you.
+- **`questions`** — how eagerly to ask. `"many"` asks at every genuine decision
+  point as the work reaches it; `"key"` asks only what is expensive to reverse;
+  `"none"` decides everything and reports it.
 
-That last one governs **interruption, not information**. Whatever the number,
-every generation ends with the full numbered list of choices made and what each
-was weighed against, and you can change any of them then. The dial only decides
-how many are raised in advance instead of afterwards — some people would rather
-answer questions, others would rather react to code that exists.
+Questions arrive **throughout**, not in one batch at the start — a decision about
+delete behaviour cannot be raised before the entities exist. Each one offers
+several real options and the choice to write your own wording. Whatever the
+setting, every generation still ends with the numbered list of choices made, and
+you can change any of them then.
 
-```json
-{
-  "app-builder": {
-    "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
-    "solution": "solution.university",
-    "questions": 3
-  }
-}
-```
+This used to be a number, and the number was wrong: capping at three does not
+make the fourth decision disappear, it makes it a silent guess.
 
 Check it before anything else:
 
@@ -294,12 +288,26 @@ the layer is, and whether the majority form is a fossil.
 
 Two things it deliberately does *not* ask about. **Presence of a field or method
 in a minority** is the domain, not a decision: a model has `instrument_id`
-because that entity references an instrument. And anything **already recorded**
-in `decisions/` — answer once, never asked again:
+because that entity references an instrument. And anything **already recorded**.
+
+Recording one means choosing a scope, and the scope matters more than the answer:
 
 ```bash
-scripts/query.py decide --name X --id attrdetail-id --answer "Uuid surrogate key"
+scripts/query.py decide --id attrdetail-id --answer "Uuid surrogate key"
+scripts/query.py decide --id attrdetail-id --answer "Uuid" --scope preference
 ```
+
+- **`solution`** (default) — true of this app only. Written into the app itself,
+  at `<solution>/.decisions.md`, so a *different* solution starts clean. This is
+  the fix for a real bug: "this app uses SQLite" was once recorded against the
+  source index, and would have been applied, unasked, to every later app built
+  from the same sources.
+- **`preference`** — every project from now on. Only written when you say
+  "always".
+
+Most answers need neither. If the choice is visible in the generated code, it is
+read back from the index instead — a ledger's real job is recording what the code
+*cannot* show, which is a deliberate absence and the reason for it.
 
 If it reports far more candidates than members, that set is several families at
 once and the questions will be the wrong ones. Narrow it first.

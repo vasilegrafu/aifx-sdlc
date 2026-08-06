@@ -25,3 +25,11 @@ pandas>=2.0
 
 # SQLite needs no driver -- sqlite3 is in the standard library. A different
 # database would add its driver here the day the configuration points at one.
+
+# The web API layer. `httpx` is not a runtime dependency of the API itself: it
+# is what FastAPI's TestClient is built on, and it is listed because without it
+# the endpoints can only be imported, never exercised -- which for an API layer
+# is the difference between generated and proven.
+fastapi>=0.115
+uvicorn>=0.32
+httpx>=0.27

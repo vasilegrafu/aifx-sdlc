@@ -1,0 +1,9 @@
+# devfx is a junction into another repository. git follows it and would commit
+# that repository's source into this one, so it must never be trackable -- not
+# briefly, and not under a blanket `git add .`.
+devfx/
+
+# Generated database files. Derived from database_generator.py, and rebuilt by it.
+database_storage/
+
+

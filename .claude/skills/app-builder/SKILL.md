@@ -45,14 +45,16 @@ paths that are already there.
   "app-builder": {
     "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
     "solution": "solution.university",
-    "questions": 3
+    "questions": "many"
   }
 }
 ```
 
-`questions` is the budget for step 6: how many decisions may be raised *before*
-generating. `0` means never interrupt. It governs interruption only -- the full
-list of choices is reported either way.
+`questions` is a **policy**, not a count: `many` asks at every genuine decision
+point as the work reaches it, `key` asks only what is expensive to reverse,
+`none` decides everything and reports it. See step 6 — and note that a count was
+tried and removed, because capping the questions does not remove the decisions,
+it only turns the ones past the cap into silent guesses.
 
 `solution` may be a plain path or an object carrying `exclude`, for the rare tree
 that genuinely is not source.
@@ -296,53 +298,97 @@ travels, which is the path yours must travel too.
 Find that chain now, before generating, so the files it forces you to edit are
 part of the plan rather than a discovery afterwards.
 
-### 6. Settle the decisions — ask once, and only what is worth asking
+### 6. Decisions arrive throughout — ask when the work reaches them
+
+A generation is a conversation, not a form filled in at the start. Some
+decisions cannot be raised until the work reaches them: you cannot ask about
+delete behaviour before the entities exist, or about a barrel file before you
+know how many modules there are. **Ask at each point as it arrives.**
 
 ```bash
-scripts/query.py decisions --name <index-name>          # already answered
-scripts/query.py questions --name <index-name> --path '<layer>'
+scripts/query.py decisions                              # already answered
+scripts/query.py questions --name <index-name> --path '<source layer>'     --target-path '<generated layer>'
 ```
 
-`questions` ranks the decisions this layer forces by **what they cost to get
-wrong** — how irreversible the kind of choice is, how genuinely forked the layer
-is, and whether the majority form is a fossil. It already excludes anything
-recorded in `decisions/`, anything the target has settled, and anything that is
-really the domain rather than a decision.
+`questions` ranks what this layer forces by **what it costs to get wrong** — how
+irreversible the kind of choice is, how genuinely forked the layer is, and
+whether the majority form is a fossil. It excludes anything already recorded,
+and anything that is really the domain rather than a decision.
 
-**`--limit` is a budget, and it comes from `questions` in `config.json`.** It
-governs *interruption, not information*: whatever the number, every generation
-still ends with the full list of choices in step 9, where the user can change
-any of them. The dial only decides how many are raised in advance.
+**Pass `--target-path` once the target holds the layer.** That is what makes
+"the target outranks the source" true of questions and not merely of `shape`:
+anything the generated code is unanimous about is read back and reported, never
+asked. Without it the command has no way to know the target's layout -- atlas
+keeps models under `database/<domain>/models/`, a flattened app does not, and no
+single glob matches both.
 
-- **`questions: 0`** — ask nothing. Decide everything, generate, and put every
-  choice in the report. This is the right setting for a user who would rather
-  react to code than to questions.
-- **`questions: N`** — ask at most the top N *before* writing anything. Ask them
-  in one message, not one at a time, with what each codebase actually does and
-  the counts. Everything below the line is decided, not asked, and listed
-  afterwards.
+**The points where a decision actually arrives**, in order:
 
-Asking about something the index already answers is a bug, not diligence — the
-same rule as "configured, not asked for". If `questions` reports far more
-candidates than there are members, the set is several families at once: narrow
-it and re-run, because those questions will be the wrong ones.
+1. **The spec** — the entities and relations. From the request, never from the
+   codebase. Restate it before generating; a wrong noun caught here costs a
+   sentence and caught later costs the pass.
+2. **Structure** — flat or grouped, where the layer lives, what the packages are
+   called. Cheap to ask, expensive to change once imports exist.
+3. **Conventions** — whatever `questions` ranks for that layer.
+4. **The platform seam** — what the source assumes and the target does not. The
+   *target* settles these, and the source cannot help.
+5. **Wiring** — when step 5 reveals a chain with more than one reasonable shape.
+6. **After generating** — the numbered list in step 9.
 
-Then record the answer, in the user's words, under the id `questions` gave it:
+**`questions` in `config.json` is a policy, not a count:**
+
+- **`many`** — ask at every genuine decision point, however many that is.
+- **`key`** — ask only what is expensive to reverse; decide the rest and say so.
+- **`none`** — decide everything and report it. Never interrupt.
+
+A count was the wrong axis, and it is worth understanding why: capping at three
+does not make the fourth decision go away, it makes it a **silent guess**. What
+limits questions properly is the rule below, not arithmetic.
+
+**Never ask what the codebase, the config or the request already answers.** That
+is the whole restraint. Before asking anything about the target, read the target
+— it is indexed, it outranks the source, and if the answer is visible in code
+already generated then there is no question. Asking there is a bug, not
+diligence.
+
+**Every question offers real options and the user's own wording.** Three or four
+substantive alternatives, each with what it actually means — the counts from the
+codebase, the consequence of choosing it — and always the option to write
+something else. A question with one plausible answer is not a question.
+
+**Show the code, not a description of it.** When the options differ in shape
+rather than in degree, attach a **preview** to each: the two or three lines it
+would actually generate. A choice between `Mapped[UUID] = mapped_column(Uuid,
+primary_key=True, default=uuid4)` and `Mapped[str] = mapped_column(String(256),
+primary_key=True)` is decided in a second when both are on screen, and argued
+about for a paragraph when they are described in prose. This is the same reason
+step 9 exists: people judge an artefact faster and better than a proposition.
+
+### Recording an answer — the scope is the decision
 
 ```bash
-scripts/query.py decide --name <index-name> --id attrdetail-id \
-    --decision "atlas: Mapped[UUID] surrogate x2, Mapped[str] natural key x1" \
-    --answer "Uuid"
+scripts/query.py decide --id attrdetail-id     --decision "atlas: Mapped[UUID] surrogate x2, Mapped[str] natural key x1"     --answer "Uuid"                                    # this solution only
+
+scripts/query.py decide --id attrdetail-id --answer "Uuid" --scope preference
 ```
 
-The file lives in `decisions/<index-name>.md`, **not** in `.data/` — an index
-rebuilds in seconds and an answer cannot be recovered from anything, so it is
-kept out of the directory that is safe to delete, and it is meant to be
-committed.
+Getting this wrong is how a reasonable feature becomes an annoying one, so it is
+worth being deliberate:
 
-An answer is a standing instruction, not a cache. Apply it without mentioning
-it, unless the request contradicts it — then the request wins and you re-record
-the row under the same id.
+- **`solution`** (the default) — true of *this app* and meaningless for the next.
+  The database it runs on, the layout it uses. It is written into the solution
+  itself, so a new solution starts clean by construction.
+- **`preference`** — how this user works, on every project from now on. Write it
+  **only when they say so** — "always", "every time", "from now on". A
+  preference inferred from one answer is a rule nobody agreed to.
+- **Neither** — and this is most of them. If the choice is visible in the
+  generated code, do not record it: the target is indexed, and `shape` reads it
+  back. What a ledger genuinely adds is what code cannot show — a deliberate
+  *absence*, and why.
+
+An answer is a standing instruction within its scope: apply it silently, unless
+the request contradicts it, in which case the request wins and the row is
+re-recorded under the same id.
 
 Never average two codebases into a form neither one uses.
 

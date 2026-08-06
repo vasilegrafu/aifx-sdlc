@@ -308,22 +308,24 @@ def cmd_config(args):
     print("              indexed with the sources; where it has already diverged,"
           "\n              it is the later decision and it wins")
 
-    budget = configured_questions()
-    print(f"\nQUESTIONS     {budget}   "
-          + ("decide everything and report it; never interrupt"
-             if budget == 0 else
-             f"ask at most {budget} before generating -- the ones that cost"))
-    if budget:
-        print("              most to get wrong. Everything else is decided and")
-        print("              listed afterwards, where you can still change it.")
-    store = decisions_path("x").parent
-    files = sorted(store.glob("*.md")) if store.is_dir() else []
-    if files:
-        print("DECISIONS     " + ", ".join(
-            f"{f.stem}: {len(read_decisions(f.stem))}" for f in files)
-            + f"   ({store})")
-    else:
-        print(f"DECISIONS     none recorded yet   ({store})")
+    mode = configured_questions()
+    explain = {
+        "many": "ask at every genuine decision point, as the work reaches it",
+        "key": "ask only what is expensive to reverse; decide the rest",
+        "none": "decide everything and report it; never interrupt",
+    }
+    print(f"\nQUESTIONS     {mode}   {explain[mode]}")
+    if mode != "none":
+        print("              Questions arrive throughout, not in one batch up front:")
+        print("              a decision cannot be raised before the work reaches it,")
+        print("              and every one offers options plus your own wording.")
+    for scope, label in (("solution", "DECISIONS"), ("preference", "PREFERENCES")):
+        rows = read_decisions(scope)
+        path = decisions_path(scope)
+        print(f"{label:<13} {len(rows)}   {path}")
+    print("              solution-scoped answers live in the app, so a new one")
+    print("              starts clean; preferences apply to every project and are")
+    print("              only written when you say 'always'.")
 
     data = skill_root() / ".data"
     built = sorted(p.name for p in data.iterdir() if p.is_dir()) if data.is_dir() else []
@@ -539,17 +541,29 @@ def cmd_proof(args):
                               if test_dirs else "no test directories in the index"))
 
 
-HEADER = ("# Decisions\n\n"
-          "Answers to disagreements between the indexed codebases. Read before\n"
-          "asking. An answer here is a standing instruction: apply it silently,\n"
-          "unless the request contradicts it, in which case the request wins and\n"
-          "the row is updated.\n\n"
-          "| id | decision | answer | asked |\n"
-          "|----|----------|--------|-------|\n")
+HEADERS = {
+    "solution": (
+        "# Decisions for this solution\n\n"
+        "Answers that are true of **this application** and meaningless for the\n"
+        "next one -- the database it runs on, the layout it uses. They live here\n"
+        "rather than beside the skill so that a new solution starts clean by\n"
+        "construction, instead of inheriting a choice nobody made for it.\n\n"
+        "Most of what gets decided is *not* here, on purpose: it is visible in\n"
+        "the code, and the code is indexed. What a ledger adds is the thing the\n"
+        "code cannot show -- a deliberate absence, and why.\n\n"),
+    "preference": (
+        "# Preferences\n\n"
+        "How this user likes things done, **across projects**. Only ever written\n"
+        "when they said so -- \"always\", \"every time\". A preference inferred\n"
+        "from a single answer is how a one-off choice becomes a rule nobody\n"
+        "agreed to.\n\n"),
+}
+TABLE = ("| id | decision | answer | asked |\n"
+         "|----|----------|--------|-------|\n")
 
 
-def read_decisions(name: str) -> list[dict]:
-    path = decisions_path(name)
+def read_decisions(scope: str = "solution") -> list[dict]:
+    path = decisions_path(scope)
     if not path.exists():
         return []
     rows = []
@@ -564,26 +578,42 @@ def read_decisions(name: str) -> list[dict]:
 
 
 def cmd_decisions(args):
-    """What has already been settled, so it is not asked again."""
-    rows = read_decisions(args.name)
-    path = decisions_path(args.name)
-    if not rows:
-        return print(f"no decisions recorded for {args.name!r}\n  {path}\n\n"
-                     "Record one after asking:\n"
-                     "  query.py decide --name X --id primary-key-type \\\n"
-                     "      --decision 'atlas: Uuid surrogate. other: natural key.' \\\n"
-                     "      --answer Uuid")
-    print(f"{len(rows)} decision(s)   {path}\n")
-    width = max(len(r["id"]) for r in rows)
-    for r in rows:
-        print(f"  {r['id']:<{width}}  {r['answer']}     ({r['asked']})")
-        print(f"  {'':<{width}}  {r['decision']}")
+    """What has already been settled, and at which scope.
+
+    Both stores, always, and labelled -- because the failure this replaced was
+    not that an answer was missing but that it applied somewhere it had no
+    business applying.
+    """
+    shown = False
+    for scope in ("solution", "preference"):
+        rows = read_decisions(scope)
+        path = decisions_path(scope)
+        label = ("THIS SOLUTION" if scope == "solution"
+                 else "PREFERENCES -- across every project")
+        if not rows:
+            print(f"== {label} ==\n  none recorded   ({path})\n")
+            continue
+        shown = True
+        print(f"== {label} ==   {len(rows)}   ({path})\n")
+        width = max(len(r["id"]) for r in rows)
+        for r in rows:
+            print(f"  {r['id']:<{width}}  {r['answer']}     ({r['asked']})")
+            print(f"  {'':<{width}}  {r['decision']}")
+        print()
+    if not shown:
+        print("Record one after asking, and pick the scope deliberately:\n"
+              "  decide --id attrdetail-id --answer 'Uuid'                    "
+              "# this app\n"
+              "  decide --id attrdetail-id --answer 'Uuid' --scope preference "
+              "# always\n\n"
+              "Most answers need neither: if the choice is visible in the "
+              "generated code,\nread it back with `shape` instead of recording it.")
 
 
 def cmd_decide(args):
     """Record an answer. Updating an id replaces it -- the later word wins."""
-    path = decisions_path(args.name)
-    rows = read_decisions(args.name)
+    path = decisions_path(args.scope)
+    rows = read_decisions(args.scope)
     asked = args.asked or datetime.date.today().isoformat()
     new = {"id": args.id, "decision": args.decision or "", "answer": args.answer,
            "asked": asked}
@@ -599,8 +629,10 @@ def cmd_decide(args):
     path.parent.mkdir(parents=True, exist_ok=True)
     body = "".join(f"| {r['id']} | {r['decision']} | {r['answer']} | {r['asked']} |\n"
                    for r in rows)
-    path.write_text(HEADER + body, encoding="utf-8")
-    print(f"{verb} {args.id!r} -> {args.answer!r}\n  {path}")
+    path.write_text(HEADERS[args.scope] + TABLE + body, encoding="utf-8")
+    where = ("this solution only" if args.scope == "solution"
+             else "EVERY project from now on")
+    print(f"{verb} {args.id!r} -> {args.answer!r}   [{where}]\n  {path}")
 
 
 def cmd_meta(args):
@@ -1131,6 +1163,53 @@ def majority_score(n: int, total: int) -> float:
     return max(0.0, 1.0 - abs(p - 80) / 30)
 
 
+def target_settled(args, ranked) -> dict[str, str]:
+    """Candidates the generated code has already answered, and how.
+
+    "The target outranks the source" is stated all through this skill, and it
+    applies to questions before it applies to anything else: a choice visible in
+    code that already exists is not a question, it is a fact to read back. The
+    target is unanimous or it is not -- a layer where half the members do it is
+    still a live decision.
+
+    Needs `--target-path`, because the target's layout is not the source's:
+    atlas keeps models under `database/<domain>/models/`, a single-domain app
+    flattens them, and no glob matches both.
+    """
+    if not getattr(args, "target_path", None):
+        return {}
+    repo = getattr(args, "target_repo", None) or configured_solution()["name"]
+    target = [r for r in read_index(args.name)
+              if r["k"] in kinds_for(args) and r["repo"] == repo
+              and fnmatch.fnmatch(r["path"], args.target_path)]
+    if not target:
+        return {}
+    n = len(target)
+
+    counts = Counter()
+    for r in target:
+        counts.update(features(r))
+    forms = defaultdict(Counter)
+    for r in target:
+        for a in r.get("attrs", ()):
+            if a.get("ann"):
+                forms[a["name"]][a["ann"]] += 1
+
+    out = {}
+    for _score, ident, kind, _title, _note, item in ranked:
+        if kind == "attrdetail":
+            shapes = forms.get(item)
+            if shapes and len(shapes) == 1:
+                out[ident] = f"{repo} uses {next(iter(shapes))} throughout"
+            continue
+        seen = counts.get(f"{kind}:{item}", 0)
+        if seen == n:
+            out[ident] = f"{repo} keeps it, {n}/{n}"
+        elif seen == 0:
+            out[ident] = f"{repo} dropped it, 0/{n} -- leave it dropped"
+    return out
+
+
 def cmd_questions(args):
     """The decisions this layer would force, ranked by what they cost to get wrong.
 
@@ -1148,7 +1227,9 @@ def cmd_questions(args):
     total = len(recs)
     per_repo = Counter(r["repo"] for r in recs)
     target = configured_solution()["name"]
-    settled = {d["id"]: d for d in read_decisions(args.name)}
+    # Both scopes: an answer settles a question wherever it was recorded.
+    settled = {d["id"]: d for scope in ("solution", "preference")
+               for d in read_decisions(scope)}
 
     counts, repo_counts, newest = Counter(), defaultdict(Counter), {}
     for r in recs:
@@ -1175,7 +1256,7 @@ def cmd_questions(args):
             note += f", and nothing since {when(newest[f])}"
         if score > 0:
             candidates.append((score, f"{kind}-{slugify(item)}", kind,
-                               f"{LABELS.get(kind, kind)}: {item}", note))
+                               f"{LABELS.get(kind, kind)}: {item}", note, item))
 
     # 2. An attribute everything has, in more than one form. This is the
     #    primary-key question, and it never shows up as a VARIES row because
@@ -1195,7 +1276,7 @@ def cmd_questions(args):
         candidates.append((
             score, f"attrdetail-{slugify(name)}", "attrdetail",
             f"attribute detail: {name}",
-            f"{truncate(top, 32)} x{n_top} vs {truncate(second, 32)} x{n_second}"))
+            f"{truncate(top, 32)} x{n_top} vs {truncate(second, 32)} x{n_second}", name))
 
     # 3. What one repository always does and another never does. Never averaged,
     #    and settled already when the target is one of the sides.
@@ -1210,14 +1291,21 @@ def cmd_questions(args):
         candidates.append((
             DECISION_WEIGHT.get(kind, 0.3) + 0.5, f"{kind}-{slugify(item)}",
             kind, f"DISAGREEMENT -- {LABELS.get(kind, kind)}: {item}",
-            f"{', '.join(hi)} always; {', '.join(lo)} never"))
+            f"{', '.join(hi)} always; {', '.join(lo)} never", item))
 
     best: dict[str, tuple] = {}
     for cand in candidates:
         if cand[0] > best.get(cand[1], (0,))[0]:
             best[cand[1]] = cand
     ranked = sorted(best.values(), key=lambda c: -c[0])
-    asked = [c for c in ranked if c[1] not in settled][: args.limit]
+
+    # Answered by the code already. The target is indexed and it outranks the
+    # source, so if the generated layer is unanimous about something there is
+    # nothing to ask -- reading it back is cheaper than a question, and asking
+    # anyway invites the user to re-decide what they already decided.
+    by_code = target_settled(args, ranked)
+    asked = [c for c in ranked
+             if c[1] not in settled and c[1] not in by_code][: args.limit]
 
     print(f"{total} {'functions' if recs[0]['k'] == 'func' else 'classes'} "
           f"-> {len(ranked)} candidate decisions, "
@@ -1227,26 +1315,43 @@ def cmd_questions(args):
               f" is not one layer.\n  These questions average several families"
               f" together and will not be the\n  right ones. Narrow with --base,"
               f" --decorator or a deeper --path first.\n")
+    if by_code:
+        print(f"  {len(by_code)} answered by the code already -- the target "
+              f"outranks the source,\n  so these are read back, not asked:")
+        for ident, how in list(by_code.items())[:6]:
+            print(f"      {ident:<28} {how}")
+        print()
+
     if not asked:
+        if by_code and not settled:
+            return print("  nothing left to ask: the generated code already "
+                         "answers every candidate.")
         if ranked:
-            return print(f"  nothing left to ask -- every candidate here is "
-                         f"already settled.\n  `decisions --name {args.name}` "
-                         f"shows the answers being applied.")
+            return print("  nothing left to ask -- every candidate here is "
+                         "already settled, in the code or in a\n  recorded "
+                         "answer. `decisions` shows the recorded ones.")
         return print("  nothing worth asking about: everything that varies here"
                      "\n  is one odd file, a default with one exception, or the"
                      " domain itself.")
 
-    for score, ident, kind, title, note in asked:
+    for score, ident, kind, title, note, _item in asked:
         print(f"  {score:.2f}  {ident}")
         print(f"        {title}")
         print(f"        {note}")
         if WHY.get(kind):
             print(f"        why it matters: {WHY[kind]}")
-        print(f"        answer with: decide --name {args.name} "
-              f"--id {ident} --answer \"...\"")
+        print(f"        answer with: decide --id {ident} --answer \"...\"" 
+              f"   (--scope preference if it is always)")
         print()
 
-    below = len(ranked) - len(settled) - len(asked)
+    if by_code:
+        print(f"  {len(by_code)} answered by the code already -- the target "
+              f"outranks the source,\n  so these are read back rather than asked:")
+        for ident, how in list(by_code.items())[:6]:
+            print(f"      {ident:<28} {how}")
+        print()
+
+    below = len(ranked) - len(settled) - len(by_code) - len(asked)
     if below > 0:
         print(f"  {below} more below the line. Those are not asked -- they are "
               f"decided\n  and stated in the report.")
@@ -1452,17 +1557,28 @@ def main() -> int:
     add_kind_and_tech(p)
     p.add_argument("--usually", type=int, default=60,
                    help="percent above which an attribute counts as universal")
-    p.add_argument("--limit", type=int, default=configured_questions(),
-                   help="the budget: how many questions are worth a person's "
-                        "time. Defaults to `questions` in config.json")
+    p.add_argument("--target-path", metavar="GLOB",
+                   help="the generated layer. Anything it is unanimous about is "
+                        "already answered by the code and is not asked -- the "
+                        "target outranks the source")
+    p.add_argument("--target-repo",
+                   help="defaults to the configured solution")
+    p.add_argument("--limit", type=int,
+                   default=99 if configured_questions() == "many" else 5,
+                   help="how many to print. Not a budget -- `questions` in "
+                        "config.json decides how eagerly to ask, and in `many` "
+                        "there is no cap: a question suppressed by a count "
+                        "becomes a silent guess")
     p.set_defaults(fn=cmd_questions)
 
-    p = sub.add_parser("decisions", help="answers already given, so they are not asked twice")
-    p.add_argument("--name", default="default")
+    p = sub.add_parser("decisions", help="answers already given, and at which scope")
     p.set_defaults(fn=cmd_decisions)
 
-    p = sub.add_parser("decide", help="record the answer to a disagreement")
-    p.add_argument("--name", default="default")
+    p = sub.add_parser("decide", help="record an answer -- pick the scope deliberately")
+    p.add_argument("--scope", choices=("solution", "preference"), default="solution",
+                   help="solution: true of this app only, and lives in it. "
+                        "preference: every project from now on -- only when the "
+                        "user says 'always'")
     p.add_argument("--id", required=True, metavar="KEBAB-CASE",
                    help="stable, never reused -- it is what makes 'already asked' answerable")
     p.add_argument("--answer", required=True, help="the user's words, not a paraphrase")

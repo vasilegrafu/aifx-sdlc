@@ -1,0 +1,6 @@
+{
+    "environment": "dev",
+    "database": {
+        "url": "sqlite:///database_storage/school.sqlite3"
+    }
+}
