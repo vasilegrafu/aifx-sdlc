@@ -466,7 +466,11 @@ the nearest layer as a source of conventions instead.
 
 - **Python, TypeScript, JavaScript and C#** — four languages, four extractors,
   each on a real parser rather than on pattern matching, and every record says
-  which language produced it and at what fidelity. Python needs nothing;
+  which language produced it and at what fidelity. **`.vue`, `.svelte`,
+  `.razor` and `.cshtml`** are read too, but they are not languages: a
+  segmenter splits each file into the languages it holds and the ordinary
+  extractors read the spans. Their markup and styles are reported as not
+  covered. Python needs nothing;
   TypeScript needs `node` and the project's own `node_modules/typescript`;
   JavaScript needs `node` and `acorn`; C# needs the .NET SDK — each present by
   definition in a codebase of that language. Nothing else is covered and must

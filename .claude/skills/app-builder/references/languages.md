@@ -186,11 +186,84 @@ reported `Error` as a dominant base class. Files whose longest line runs past a
 couple of thousand characters are build output, and are skipped and counted, not
 read.
 
+## Container formats: one file, several languages
+
+`.vue`, `.svelte`, `.razor` and `.cshtml` are **not languages** and have no
+extractor. They are split by a *segmenter* under `scripts/segmenters/`, and each
+span is then read by the extractor that already handles that language. Nothing
+downstream learns a new concept.
+
+A segmenter declares `EXTENSIONS` and `FORMAT`, and yields
+`(extension, text, line_offset, role)`. The extension decides the extractor; a
+span whose extension nothing claims — the markup, the styles — is counted as
+**not covered**, because a component whose template went unread is not a
+component with no template.
+
+**The line offset is the whole contract.** A record pointing into a temporary
+span rather than at the file a person will open looks correct and is not, so
+`selftest.py` puts a definition on a known line of each format and asserts it
+survives the trip. Verified across 230 Vue, 24 Svelte and 13 Razor files from
+real projects: 83 definitions, every one landing on the line that declares it.
+
+**A top-level block starts at column 0.** This is the rule that makes the scan
+work and the one a naive parser gets wrong. Across those 230 components every
+top-level `<template>`, `<script>` and `<style>` is at the first column, while
+`<template v-if=…>` and `<template slot-scope=…>` — ordinary elements *inside*
+the template, and far more numerous — are always indented. Scanning for
+`<template` anywhere finds dozens of false blocks per file; closing at the first
+`</template>` ends the block in the middle of the markup.
+
+**Attributes are parsed, not matched.** `<script lang="ts" setup>` and
+`<script setup lang="ts">` both occur, 58 and 19 times in the sample.
+
+**A `@code` block is not a compilation unit.** It holds class *members* with no
+class around them, so Razor wraps it in one, named after the file — which is
+also the name Blazor generates. The wrapper is deliberately **one** line: with
+two, the synthetic class and its members disagree by one, because the class must
+land on the `@code {` line and each member one line further down.
+
+**Spans are read with the temporary directory as their root.** An adapter is
+entitled to compute a relative path by trimming the root it was given, and one
+of them does — a file outside that root came back named `.js` and every record
+was silently dropped. The package's own parser is passed separately, through the
+override the extractors already carry.
+
+What this does *not* reach, and why:
+
+- **Vue 2 Options API components define nothing at the top level.** `export
+  default { methods: { … } }` is an object literal, so 130 components yield 130
+  module records, 86 with imports and 120 with exports, and **zero** classes or
+  functions. The same shape as React: the convention is not in declarations.
+  Vue 3's `<script setup>` does declare, and reads properly.
+- **A Vue 2 script block written in JSX fails to parse**, because the block is
+  handed over as `.js` and nothing declares otherwise — one file in 130. It is
+  reported as `unparsed` with the reason, not silently skipped.
+- **`.cshtml` has no `@code` in practice** — zero across 48 real views. What it
+  has is `@{ … }` statement blocks, which are statements rather than members and
+  would need a second synthetic wrapper around a method nobody wrote.
+- **`@inject`, `@inherits` and `@page` are not recorded.** They are the Blazor
+  form of imports and routing — the wiring question — and reaching them means
+  emitting records, which a segmenter does not do.
+
 ## Adding one
+
+First decide which of the three things you are adding, because only one of them
+is a language:
+
+- **A language** — a parser of its own. An extractor, below.
+- **A technology** — React, Vue, SQLAlchemy, ASP.NET. *Not* an extractor: it is
+  visible in what a module imports, so it is a row in `TECHNOLOGIES` in
+  `query.py` and reaches `--tech` immediately, with no rebuild.
+- **A container format** — one file holding several languages. A segmenter, not
+  an extractor, and it must add a fixture to `CONTAINERS` in `selftest.py` with
+  a definition on a known line.
+
+To add a language:
 
 1. Write the extractor, emitting the same records. Start with `class`, `module`
    and `func`; `calls` and `invokes` earn their keep immediately after.
-2. Add a row to `LANGUAGES` in `query.py`: proof files, barrel file, entry point.
+2. Add a row to `LANGUAGES` in `query.py`: proof files, barrel file, entry
+   point, rung-1 command, and where its toolchain lives.
 3. Add a rung-1 and rung-2 command to the table above.
 4. Index a real codebase in that language and run `shape` on a layer you already
    understand. If the output does not tell you something you knew, the extractor

@@ -63,6 +63,8 @@ on this machine is the failure worth catching first.
 | TypeScript, `.ts` `.tsx` `.mts` `.cts` | `node` + the project's `node_modules/typescript` | present by definition in a TS project |
 | JavaScript, `.js` `.jsx` `.mjs` `.cjs` | `node` + `node_modules/acorn` | ships inside eslint, vite, webpack, rollup |
 | C# | the .NET SDK | the adapter builds itself on first use, ~20s, then caches |
+| Vue `.vue`, Svelte `.svelte` | whatever the script block is written in | split first, then read as TypeScript or JavaScript |
+| Razor `.razor` `.cshtml` | the .NET SDK | only the `@code` block is C#; the rest is markup |
 
 A language whose toolchain is missing is **skipped and reported**, never silently
 treated as absent.
@@ -311,8 +313,15 @@ rather than counting them as passing.
 **It reads structure, not behaviour.** `shape` knows a method exists and what it
 calls. It does not know what it means.
 
-**Python, TypeScript, JavaScript and C# only.** Anything else is skipped, and
-reported as skipped.
+**Python, TypeScript, JavaScript and C# only** — plus `.vue`, `.svelte`,
+`.razor` and `.cshtml`, which are split into those languages rather than parsed
+in their own right. Anything else is skipped, and reported as skipped.
+
+**A Vue 2 component defines nothing this can see.** `export default { methods:
+{ … } }` is an object literal, so the Options API yields imports and exports but
+no classes or functions — measured at zero across 130 real components. Vue 3's
+`<script setup>` declares properly and reads fine. Read a Vue 2 layer through
+`imports` and `layers`, not `shape`.
 
 **C#: `calls --on <TypeName>` largely does not work.** C# is read syntax-only, so
 an instance call is attributed to the *variable* it was made on, not to that
@@ -387,6 +396,7 @@ even when two solutions link to the same library through junctions. `meta` repor
     smoke.py               check generated Python
     selftest.py            check that the extractors still agree
     extractors/            one per language
+    segmenters/            one per container format: .vue, .svelte, .razor
     adapters/              the toolchains they shell out to
   decisions/               answers you gave — tracked, and not derived
   .data/                   indexes — gitignored, rebuildable, never edited by hand

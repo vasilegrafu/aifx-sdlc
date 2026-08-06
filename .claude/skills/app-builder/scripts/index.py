@@ -21,16 +21,191 @@ is not.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
+import shutil
 import subprocess
+import tempfile
 import sys
 import time
 from collections import defaultdict
 from pathlib import Path
 
 from _common import (SKIP_DIRS, configured_repositories, configured_solution,
-                     index_path, iter_source_files, load_config, workspace)
+                     index_path, iter_source_files, load_config, rel, workspace)
 from extractors import ALL_EXTENSIONS, REGISTRY, for_path
+import segmenters
+
+
+def package_root(path: Path, root: Path) -> Path:
+    """The package a file belongs to: the nearest directory holding its deps.
+
+    A monorepo installs per package, and a Python solution installs its
+    frontend below the repository root -- so the answer is neither the file's
+    own directory nor the root, and getting it wrong skips every file with a
+    reason that sounds like the toolchain is missing.
+    """
+    for directory in [path.parent, *path.parent.parents]:
+        if (directory / "node_modules").is_dir() or (directory / "package.json").is_file():
+            return directory
+        if directory == root:
+            break
+    return root
+
+
+@contextlib.contextmanager
+def borrowed_parser(extractor, pkg: Path):
+    """Point an extractor at the parser belonging to `pkg`, for one call.
+
+    A span is read from a temporary directory, and every JavaScript toolchain
+    finds its compiler by walking up from the file -- which from there finds
+    nothing, however well installed the real project is. The extractors already
+    carry an override for the case of a source file that is not where the
+    toolchain expects it; this is that case.
+    """
+    env = getattr(extractor, "ENV_OVERRIDE", None)
+    finder = (getattr(extractor, "find_parser", None)
+              or getattr(extractor, "find_typescript", None))
+    found = finder(pkg) if (env and finder) else None
+    if not found:
+        yield                      # nothing to borrow, or none needed
+        return
+    previous = os.environ.get(env)
+    os.environ[env] = str(found)
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(env, None)
+        else:
+            os.environ[env] = previous
+
+
+def extract_containers(paths, root, repo, commits, uncovered, skipped):
+    """Read container files -- one file holding several languages.
+
+    Every span is written into one temporary directory and handed to the
+    ordinary extractor for its language, so a `.vue` script block is read by
+    exactly the parser that reads a `.ts` file and nothing downstream learns a
+    new concept. The extractors are called once per language, not once per
+    file, for the same reason they always were.
+
+    Two things have to be undone afterwards, and both are silent when wrong:
+    the **line offset**, because a record pointing into a temporary file looks
+    correct and is not; and the **module record**, because one file that holds
+    two script blocks would otherwise count as two files and skew every
+    percentage `shape` reports.
+
+    Spans in a language nothing here reads -- markup and styles, today -- are
+    counted as not covered rather than dropped. A component whose template went
+    unread is not a component that has no template.
+    """
+    tmp = Path(tempfile.mkdtemp(prefix="app-builder-spans-"))
+    try:
+        # Keyed by (language, the package the *original* file belongs to). A
+        # span sits in a temporary directory, and every JavaScript toolchain
+        # finds its compiler by walking up from the file -- so handing the
+        # extractor the temp directory finds nothing, in a monorepo or anywhere
+        # else. The original file's package is the honest answer, and grouping
+        # by it keeps one extractor process per package rather than per file.
+        by_language, back = defaultdict(list), {}
+        for i, path in enumerate(paths):
+            segmenter = segmenters.for_path(path)
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            relpath = rel(path, root)
+            kwargs = {"name": path.name} if segmenter.FORMAT == "razor" else {}
+            try:
+                spans = list(segmenter.segment(text, **kwargs))
+            except Exception as exc:                       # noqa: BLE001
+                yield {"k": "unparsed", "repo": repo, "path": relpath,
+                       "reason": f"{segmenter.FORMAT} segmenter: {exc}"}
+                continue
+            seen_any = False
+            for j, (ext, body, offset, _role) in enumerate(spans):
+                extractor = for_path(Path("span" + ext))
+                if extractor is None:
+                    uncovered[ext] = uncovered.get(ext, 0) + 1
+                    continue
+                span = tmp / f"{i}_{j}{ext}"
+                span.write_text(body, encoding="utf-8")
+                by_language[(extractor.LANGUAGE, package_root(path, root))].append(span)
+                back[span.name] = (relpath, offset, path)
+                seen_any = True
+            if not seen_any:
+                # 24 of 230 real components are template and style only. They
+                # are still files and still have to be counted, or the layer
+                # looks smaller than it is.
+                yield module_stub(relpath, repo, path, commits)
+
+        merged: dict[str, dict] = {}
+        for (language, pkg), spans in sorted(by_language.items()):
+            extractor = REGISTRY[language]
+            reason = extractor.available(pkg)
+            if reason:
+                skipped.append((repo, f"embedded {language}", len(spans), reason))
+                print(f"  {repo}: {len(spans)} embedded {language} span(s)"
+                      f" SKIPPED -- {reason}", file=sys.stderr)
+                continue
+            # The spans are handed over with the temp directory as their root,
+            # not the package. An adapter is entitled to compute a relative path
+            # by trimming the root it was given, and a file outside that root
+            # then comes back as a mangled name whose record is silently
+            # dropped -- which is what happened. So the root is honest, and the
+            # package's compiler is passed separately, by the override that
+            # exists for exactly this: a source file that is not where the
+            # toolchain expects to find it.
+            with borrowed_parser(extractor, pkg):
+                for rec in extractor.extract(spans, tmp, repo, {}):
+                    entry = back.get(Path(rec.get("path", "")).name)
+                    if entry is None:
+                        continue
+                    relpath, offset, real = entry
+                    rec["path"] = relpath
+                    rec["mtime"] = int(real.stat().st_mtime) if real.exists() else 0
+                    rec["commit"] = commits.get(relpath, 0)
+                    shift_lines(rec, offset)
+                    if rec.get("k") == "module":
+                        merge_module(merged, relpath, rec)
+                    else:
+                        yield rec
+        yield from merged.values()
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def shift_lines(rec, offset: int) -> None:
+    if isinstance(rec.get("line"), int):
+        rec["line"] = max(1, rec["line"] + offset)
+    for m in rec.get("methods") or ():
+        if isinstance(m.get("line"), int):
+            m["line"] = max(1, m["line"] + offset)
+
+
+def module_stub(relpath, repo, path, commits) -> dict:
+    return {"k": "module", "lang": None, "repo": repo, "path": relpath,
+            "pkg": "", "dir": relpath.rsplit("/", 1)[0] if "/" in relpath else "",
+            "loc": 0, "mtime": int(path.stat().st_mtime) if path.exists() else 0,
+            "commit": commits.get(relpath, 0), "main": False,
+            "exports": [], "imports": []}
+
+
+def merge_module(merged: dict, relpath: str, rec: dict) -> None:
+    """One container file is one module record, however many blocks it holds."""
+    first = merged.get(relpath)
+    if first is None:
+        merged[relpath] = rec
+        return
+    first["loc"] = first.get("loc", 0) + rec.get("loc", 0)
+    for key in ("imports", "exports"):
+        have = first.setdefault(key, [])
+        for item in rec.get(key) or ():
+            if item not in have:
+                have.append(item)
+    first["main"] = first.get("main") or rec.get("main")
 
 
 def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
@@ -194,8 +369,10 @@ def main() -> int:
             # Python shells out to its language's own toolchain, and a process
             # per file turns a two-second index into minutes.
             by_language: dict[str, list[Path]] = defaultdict(list)
+            containers: list[Path] = []
             for path in iter_source_files(root, args.max_bytes,
-                                          target.get("exclude", ()), ALL_EXTENSIONS,
+                                          target.get("exclude", ()),
+                                          ALL_EXTENSIONS + segmenters.ALL_EXTENSIONS,
                                           uncovered=uncovered):
                 try:
                     real = str(path.resolve())
@@ -209,8 +386,30 @@ def main() -> int:
                 extractor = for_path(path)
                 if extractor is not None:
                     by_language[extractor.LANGUAGE].append(path)
+                elif segmenters.for_path(path) is not None:
+                    containers.append(path)
 
             counted = []
+            if containers:
+                here: dict[str, int] = {}
+                for rec in extract_containers(containers, root, repo, commits,
+                                              uncovered, skipped_languages):
+                    kind = rec.get("k")
+                    if kind == "class":
+                        classes += 1
+                    elif kind == "func":
+                        funcs += 1
+                    elif kind in ("unparsed", "unreadable"):
+                        unparsed += 1
+                    elif kind == "module":
+                        seen = rec.get("lang") or "unknown"
+                        here[seen] = here.get(seen, 0) + 1
+                    fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
+                for seen, n in here.items():
+                    files += n
+                    per_language[seen] = per_language.get(seen, 0) + n
+                    fidelity.setdefault(seen, "ast")
+                counted += [f"{n} {seen}" for seen, n in sorted(here.items())]
             for language, paths in sorted(by_language.items()):
                 extractor = REGISTRY[language]
                 reason = extractor.available(root)

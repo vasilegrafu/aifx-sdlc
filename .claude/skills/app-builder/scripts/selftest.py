@@ -21,6 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import segmenters
 from _common import configured_repositories
 from extractors import REGISTRY
 
@@ -205,6 +206,95 @@ def borrow_toolchains(root: Path) -> list[str]:
     return notes
 
 
+# A container fixture per format, each carrying a definition on a line whose
+# real number is known. The line offset is the thing being tested: a record
+# pointing at the wrong line of the right file looks correct and is not, and no
+# other check in this repository would catch it.
+CONTAINERS = {
+    "vue": ("fixture.vue", """<template>
+  <div>
+    <template v-if="x">nested, and not a top-level block</template>
+  </div>
+</template>
+
+<script>
+export function widgetHelper(n) {
+  return n;
+}
+</script>
+
+<style scoped>
+.a { color: red; }
+</style>
+""", "widgetHelper", 8),
+    "svelte": ("fixture.svelte", """<script>
+  export function widgetHelper(n) {
+    return n;
+  }
+</script>
+
+<div>markup</div>
+
+<style>
+  .a { color: red; }
+</style>
+""", "widgetHelper", 2),
+    "razor": ("fixture.razor", """@page "/x"
+<h1>markup</h1>
+
+@code {
+    private string Name { get; set; }
+
+    private void Go()
+    {
+    }
+}
+""", "Go", 7),
+}
+
+
+def check_container(fmt: str, root: Path) -> list[str]:
+    """Segment a fixture, extract it, and assert the line survives the trip."""
+    import index as index_module
+
+    filename, text, want_name, want_line = CONTAINERS[fmt]
+    path = root / filename
+    path.write_text(text, encoding="utf-8")
+    segmenter = segmenters.for_path(path)
+    if segmenter is None:
+        return [f"{fmt}: no segmenter claims {filename}"]
+
+    problems, uncovered, skipped = [], {}, []
+    records = list(index_module.extract_containers([path], root, "selftest", {},
+                                                   uncovered, skipped))
+    if skipped:
+        return []          # toolchain missing; reported by the caller
+    # A definition is a record in some languages and a member of a class record
+    # in others -- Razor wraps its `@code` block in one. Both must land on the
+    # right line, so both are searched.
+    named = [r for r in records if r.get("name") == want_name]
+    named += [m for r in records for m in (r.get("methods") or ())
+              if m.get("name") == want_name]
+    nested = [r for r in records
+              if r.get("k") == "module" and r["path"] != filename]
+    if nested:
+        problems.append(f"{fmt}: records escaped onto {nested[0]['path']!r}, "
+                        f"not the container file")
+    if not named:
+        found = sorted({r.get("name") for r in records if r.get("name")})
+        problems.append(f"{fmt}: {want_name!r} not found; got {found}")
+    else:
+        got = named[0].get("line")
+        if got != want_line:
+            problems.append(f"{fmt}: {want_name!r} reported at line {got}, "
+                            f"but it is on line {want_line} of the file")
+    modules = [r for r in records if r.get("k") == "module"]
+    if len(modules) > 1:
+        problems.append(f"{fmt}: {len(modules)} module records for one file -- "
+                        f"it would count as {len(modules)} files")
+    return problems
+
+
 def main() -> int:
     root = Path(tempfile.mkdtemp(prefix="app-builder-selftest-"))
     failures, skipped = [], []
@@ -220,6 +310,15 @@ def main() -> int:
             status = "FAIL" if problems else "ok  "
             print(f"  {status} {language:<12} {extractor.FIDELITY}  "
                   f"{' '.join(extractor.EXTENSIONS)}")
+            for p in problems:
+                print(f"       {p}")
+            failures += problems
+
+        for fmt in sorted(CONTAINERS):
+            problems = check_container(fmt, root)
+            exts = " ".join(e for e, m in segmenters.BY_EXTENSION.items()
+                            if m.FORMAT == fmt)
+            print(f"  {'FAIL' if problems else 'ok  '} {fmt:<12} split {exts}")
             for p in problems:
                 print(f"       {p}")
             failures += problems
