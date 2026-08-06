@@ -288,26 +288,18 @@ the layer is, and whether the majority form is a fossil.
 
 Two things it deliberately does *not* ask about. **Presence of a field or method
 in a minority** is the domain, not a decision: a model has `instrument_id`
-because that entity references an instrument. And anything **already recorded**.
-
-Recording one means choosing a scope, and the scope matters more than the answer:
+because that entity references an instrument. And anything the **generated code
+already answers**, when you pass `--target-path`:
 
 ```bash
-scripts/query.py decide --id attrdetail-id --answer "Uuid surrogate key"
-scripts/query.py decide --id attrdetail-id --answer "Uuid" --scope preference
+scripts/query.py questions --name X --path '<source layer>'     --target-path '<generated layer>'
 ```
 
-- **`solution`** (default) — true of this app only. Written into the app itself,
-  at `<solution>/.decisions.md`, so a *different* solution starts clean. This is
-  the fix for a real bug: "this app uses SQLite" was once recorded against the
-  source index, and would have been applied, unasked, to every later app built
-  from the same sources.
-- **`preference`** — every project from now on. Only written when you say
-  "always".
-
-Most answers need neither. If the choice is visible in the generated code, it is
-read back from the index instead — a ledger's real job is recording what the code
-*cannot* show, which is a deliberate absence and the reason for it.
+Nothing is remembered between runs. Answers are not recorded anywhere, so every
+generation asks fresh — a saved answer suppresses the question next time, and the
+next generation is not the same generation. What the target already shows is read
+back from the code instead, which is a fact you can look at rather than a
+decision someone filed.
 
 If it reports far more candidates than members, that set is several families at
 once and the questions will be the wrong ones. Narrow it first.
@@ -339,8 +331,6 @@ built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
 | `conform` | whether generated code still keeps the source's contract |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
 | `questions` | the decisions this layer forces, ranked by what they cost to get wrong |
-| `decisions` | answers already given, so they are not asked twice |
-| `decide --id --answer` | record one |
 
 Shared filters ●: `--path GLOB`, `--not-path GLOB` (repeatable), `--base`,
 `--decorator`, `--symbol REGEX`, `--repo`, `--lang`.
@@ -501,11 +491,7 @@ even when two solutions link to the same library through junctions. `meta` repor
     extractors/            one per language
     segmenters/            one per container format: .vue, .svelte, .razor
     adapters/              the toolchains they shell out to
-  decisions/               answers you gave — tracked, and not derived
   .data/                   indexes — gitignored, rebuildable, never edited by hand
 ```
 
 Delete `.data/` any time. It is derived, and `index.py` rebuilds it in seconds.
-
-Do not delete `decisions/`. Nothing can rebuild it: those rows exist only
-because someone was asked. That is the whole reason it sits outside `.data/`.

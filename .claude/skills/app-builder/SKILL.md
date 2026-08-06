@@ -306,7 +306,6 @@ delete behaviour before the entities exist, or about a barrel file before you
 know how many modules there are. **Ask at each point as it arrives.**
 
 ```bash
-scripts/query.py decisions                              # already answered
 scripts/query.py questions --name <index-name> --path '<source layer>'     --target-path '<generated layer>'
 ```
 
@@ -364,31 +363,14 @@ primary_key=True)` is decided in a second when both are on screen, and argued
 about for a paragraph when they are described in prose. This is the same reason
 step 9 exists: people judge an artefact faster and better than a proposition.
 
-### Recording an answer — the scope is the decision
+Nothing is recorded. There is no ledger of past answers, and that is deliberate:
+a saved answer suppresses the question next time, and the next generation is not
+the same generation. Ask, use the answer, and state it in the report at step 9 --
+where it stays visible in the code rather than in a file about the code.
 
-```bash
-scripts/query.py decide --id attrdetail-id     --decision "atlas: Mapped[UUID] surrogate x2, Mapped[str] natural key x1"     --answer "Uuid"                                    # this solution only
-
-scripts/query.py decide --id attrdetail-id --answer "Uuid" --scope preference
-```
-
-Getting this wrong is how a reasonable feature becomes an annoying one, so it is
-worth being deliberate:
-
-- **`solution`** (the default) — true of *this app* and meaningless for the next.
-  The database it runs on, the layout it uses. It is written into the solution
-  itself, so a new solution starts clean by construction.
-- **`preference`** — how this user works, on every project from now on. Write it
-  **only when they say so** — "always", "every time", "from now on". A
-  preference inferred from one answer is a rule nobody agreed to.
-- **Neither** — and this is most of them. If the choice is visible in the
-  generated code, do not record it: the target is indexed, and `shape` reads it
-  back. What a ledger genuinely adds is what code cannot show — a deliberate
-  *absence*, and why.
-
-An answer is a standing instruction within its scope: apply it silently, unless
-the request contradicts it, in which case the request wins and the row is
-re-recorded under the same id.
+What *is* still read is the generated code itself. `--target-path` reports
+anything the target already answers instead of asking, because that is a fact
+you can look at rather than a decision someone saved.
 
 Never average two codebases into a form neither one uses.
 

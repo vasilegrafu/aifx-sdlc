@@ -12,8 +12,7 @@ codebase of any size can be understood without reading it.
     shape       what is ALWAYS true of a set of classes vs. what VARIES
     exemplars   the most typical file to copy, and the outlier that shows why
     imports     who imports a symbol -- the wiring that makes it take effect
-    decisions   answers already given, so a disagreement is asked once
-    decide      record one
+    questions   the decisions a layer forces, ranked by what they cost
     meta        what this index covers and when it was built
 
 `shape` is the one that matters. What is always true is contract: reproduce it.
@@ -32,9 +31,8 @@ import shutil
 from collections import Counter, defaultdict
 
 from _common import (configured_questions, configured_repositories,
-                     configured_solution, decisions_path, find_files,
-                     load_config, pct, read_index, skill_root, truncate,
-                     workspace)
+                     configured_solution, find_files, load_config, pct,
+                     read_index, skill_root, truncate, workspace)
 
 # ---------------------------------------------------------------- filtering
 
@@ -319,13 +317,6 @@ def cmd_config(args):
         print("              Questions arrive throughout, not in one batch up front:")
         print("              a decision cannot be raised before the work reaches it,")
         print("              and every one offers options plus your own wording.")
-    for scope, label in (("solution", "DECISIONS"), ("preference", "PREFERENCES")):
-        rows = read_decisions(scope)
-        path = decisions_path(scope)
-        print(f"{label:<13} {len(rows)}   {path}")
-    print("              solution-scoped answers live in the app, so a new one")
-    print("              starts clean; preferences apply to every project and are")
-    print("              only written when you say 'always'.")
 
     data = skill_root() / ".data"
     built = sorted(p.name for p in data.iterdir() if p.is_dir()) if data.is_dir() else []
@@ -539,100 +530,6 @@ def cmd_proof(args):
     print("  TESTS       " + (", ".join(f"{d} ({n} files)"
                                         for d, n in test_dirs.most_common())
                               if test_dirs else "no test directories in the index"))
-
-
-HEADERS = {
-    "solution": (
-        "# Decisions for this solution\n\n"
-        "Answers that are true of **this application** and meaningless for the\n"
-        "next one -- the database it runs on, the layout it uses. They live here\n"
-        "rather than beside the skill so that a new solution starts clean by\n"
-        "construction, instead of inheriting a choice nobody made for it.\n\n"
-        "Most of what gets decided is *not* here, on purpose: it is visible in\n"
-        "the code, and the code is indexed. What a ledger adds is the thing the\n"
-        "code cannot show -- a deliberate absence, and why.\n\n"),
-    "preference": (
-        "# Preferences\n\n"
-        "How this user likes things done, **across projects**. Only ever written\n"
-        "when they said so -- \"always\", \"every time\". A preference inferred\n"
-        "from a single answer is how a one-off choice becomes a rule nobody\n"
-        "agreed to.\n\n"),
-}
-TABLE = ("| id | decision | answer | asked |\n"
-         "|----|----------|--------|-------|\n")
-
-
-def read_decisions(scope: str = "solution") -> list[dict]:
-    path = decisions_path(scope)
-    if not path.exists():
-        return []
-    rows = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if not line.startswith("|"):
-            continue
-        cells = [c.strip() for c in line.strip().strip("|").split("|")]
-        if len(cells) != 4 or cells[0] in ("id", "") or set(cells[0]) <= {"-", ":"}:
-            continue
-        rows.append(dict(zip(("id", "decision", "answer", "asked"), cells)))
-    return rows
-
-
-def cmd_decisions(args):
-    """What has already been settled, and at which scope.
-
-    Both stores, always, and labelled -- because the failure this replaced was
-    not that an answer was missing but that it applied somewhere it had no
-    business applying.
-    """
-    shown = False
-    for scope in ("solution", "preference"):
-        rows = read_decisions(scope)
-        path = decisions_path(scope)
-        label = ("THIS SOLUTION" if scope == "solution"
-                 else "PREFERENCES -- across every project")
-        if not rows:
-            print(f"== {label} ==\n  none recorded   ({path})\n")
-            continue
-        shown = True
-        print(f"== {label} ==   {len(rows)}   ({path})\n")
-        width = max(len(r["id"]) for r in rows)
-        for r in rows:
-            print(f"  {r['id']:<{width}}  {r['answer']}     ({r['asked']})")
-            print(f"  {'':<{width}}  {r['decision']}")
-        print()
-    if not shown:
-        print("Record one after asking, and pick the scope deliberately:\n"
-              "  decide --id attrdetail-id --answer 'Uuid'                    "
-              "# this app\n"
-              "  decide --id attrdetail-id --answer 'Uuid' --scope preference "
-              "# always\n\n"
-              "Most answers need neither: if the choice is visible in the "
-              "generated code,\nread it back with `shape` instead of recording it.")
-
-
-def cmd_decide(args):
-    """Record an answer. Updating an id replaces it -- the later word wins."""
-    path = decisions_path(args.scope)
-    rows = read_decisions(args.scope)
-    asked = args.asked or datetime.date.today().isoformat()
-    new = {"id": args.id, "decision": args.decision or "", "answer": args.answer,
-           "asked": asked}
-    existing = next((r for r in rows if r["id"] == args.id), None)
-    if existing:
-        if not args.decision:
-            new["decision"] = existing["decision"]
-        rows[rows.index(existing)] = new
-        verb = "updated"
-    else:
-        rows.append(new)
-        verb = "recorded"
-    path.parent.mkdir(parents=True, exist_ok=True)
-    body = "".join(f"| {r['id']} | {r['decision']} | {r['answer']} | {r['asked']} |\n"
-                   for r in rows)
-    path.write_text(HEADERS[args.scope] + TABLE + body, encoding="utf-8")
-    where = ("this solution only" if args.scope == "solution"
-             else "EVERY project from now on")
-    print(f"{verb} {args.id!r} -> {args.answer!r}   [{where}]\n  {path}")
 
 
 def cmd_meta(args):
@@ -891,12 +788,6 @@ def cmd_shape(args):
         else:
             print("   one repository always does this, another never does."
                   "\n   These are decisions, not averages. Ask before choosing.\n")
-        settled = read_decisions(args.name)
-        if settled:
-            print("   already settled -- apply these silently, do not ask again:")
-            for d in settled:
-                print(f"     {d['id']}: {d['answer']}   ({d['asked']})")
-            print()
         found = False
         for f, by_repo in repo_counts.items():
             hi = [(r, by_repo.get(r, 0), n) for r, n in per_repo.items()
@@ -1227,9 +1118,6 @@ def cmd_questions(args):
     total = len(recs)
     per_repo = Counter(r["repo"] for r in recs)
     target = configured_solution()["name"]
-    # Both scopes: an answer settles a question wherever it was recorded.
-    settled = {d["id"]: d for scope in ("solution", "preference")
-               for d in read_decisions(scope)}
 
     counts, repo_counts, newest = Counter(), defaultdict(Counter), {}
     for r in recs:
@@ -1304,12 +1192,10 @@ def cmd_questions(args):
     # nothing to ask -- reading it back is cheaper than a question, and asking
     # anyway invites the user to re-decide what they already decided.
     by_code = target_settled(args, ranked)
-    asked = [c for c in ranked
-             if c[1] not in settled and c[1] not in by_code][: args.limit]
+    asked = [c for c in ranked if c[1] not in by_code][: args.limit]
 
     print(f"{total} {'functions' if recs[0]['k'] == 'func' else 'classes'} "
-          f"-> {len(ranked)} candidate decisions, "
-          f"{len(settled)} already settled, showing {len(asked)}\n")
+          f"-> {len(ranked)} candidate decisions, showing {len(asked)}\n")
     if len(ranked) > total * 2:
         print(f"  NOTE: {len(ranked)} candidates for {total} members means this"
               f" is not one layer.\n  These questions average several families"
@@ -1323,13 +1209,9 @@ def cmd_questions(args):
         print()
 
     if not asked:
-        if by_code and not settled:
+        if by_code:
             return print("  nothing left to ask: the generated code already "
                          "answers every candidate.")
-        if ranked:
-            return print("  nothing left to ask -- every candidate here is "
-                         "already settled, in the code or in a\n  recorded "
-                         "answer. `decisions` shows the recorded ones.")
         return print("  nothing worth asking about: everything that varies here"
                      "\n  is one odd file, a default with one exception, or the"
                      " domain itself.")
@@ -1340,8 +1222,6 @@ def cmd_questions(args):
         print(f"        {note}")
         if WHY.get(kind):
             print(f"        why it matters: {WHY[kind]}")
-        print(f"        answer with: decide --id {ident} --answer \"...\"" 
-              f"   (--scope preference if it is always)")
         print()
 
     if by_code:
@@ -1351,7 +1231,7 @@ def cmd_questions(args):
             print(f"      {ident:<28} {how}")
         print()
 
-    below = len(ranked) - len(settled) - len(by_code) - len(asked)
+    below = len(ranked) - len(by_code) - len(asked)
     if below > 0:
         print(f"  {below} more below the line. Those are not asked -- they are "
               f"decided\n  and stated in the report.")
@@ -1570,21 +1450,6 @@ def main() -> int:
                         "there is no cap: a question suppressed by a count "
                         "becomes a silent guess")
     p.set_defaults(fn=cmd_questions)
-
-    p = sub.add_parser("decisions", help="answers already given, and at which scope")
-    p.set_defaults(fn=cmd_decisions)
-
-    p = sub.add_parser("decide", help="record an answer -- pick the scope deliberately")
-    p.add_argument("--scope", choices=("solution", "preference"), default="solution",
-                   help="solution: true of this app only, and lives in it. "
-                        "preference: every project from now on -- only when the "
-                        "user says 'always'")
-    p.add_argument("--id", required=True, metavar="KEBAB-CASE",
-                   help="stable, never reused -- it is what makes 'already asked' answerable")
-    p.add_argument("--answer", required=True, help="the user's words, not a paraphrase")
-    p.add_argument("--decision", help="what each codebase actually does, with its name")
-    p.add_argument("--asked", help="ISO date; today if omitted")
-    p.set_defaults(fn=cmd_decide)
 
     p = sub.add_parser("proof", help="how a codebase proves itself -- tests, entry points")
     p.add_argument("--name", default="default")

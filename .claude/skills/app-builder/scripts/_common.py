@@ -172,38 +172,9 @@ def workspace(name: str) -> Path:
     Gitignored, and it has to be -- the skill around it is tracked, so a
     blanket `git add .` would otherwise commit structure derived from someone
     else's repository along with the skill. Everything in here is derived and
-    safe to delete, which is exactly why decisions are not kept here.
+    safe to delete: `index.py` rebuilds it in seconds.
     """
     return skill_root() / ".data" / name
-
-
-def decisions_path(scope: str = "solution") -> Path:
-    """Where an answer lives, which depends entirely on what it is an answer to.
-
-    A decision has a **scope**, and keying every answer by index name -- as this
-    did -- collapses three different things into one. "This app uses SQLite" was
-    recorded against the index `atlas` and would then have been applied, without
-    asking, to the next application generated from the same sources. That is the
-    bug this split exists to fix.
-
-        solution   -- true of this app and meaningless for the next one:
-                      the database it runs on, the layout it uses. Lives *in*
-                      the app, so a new solution starts clean by construction
-                      rather than by anyone remembering to clear a ledger.
-
-        preference -- how this user likes things done, across projects. Only
-                      ever written when they say so: "always", "every time".
-                      A preference inferred from one answer is the same bug in
-                      a longer-lived file.
-
-    A third kind is not stored at all. Most of what gets decided is visible in
-    the generated code -- the target is indexed, and `shape` reads it back. The
-    only thing a ledger genuinely adds is what the code *cannot* show: a
-    deliberate absence, and why. You cannot see a decision not to do something.
-    """
-    if scope == "preference":
-        return skill_root() / "preferences.md"
-    return solution_dir() / ".decisions.md"
 
 
 def index_path(name: str) -> Path:

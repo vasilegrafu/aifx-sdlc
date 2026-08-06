@@ -167,32 +167,6 @@ the same — run it from somewhere else before believing it:
   the assembly, so a service that reads configuration works under `dotnet run`
   from the project directory and not from the solution directory.
 
-## The decisions file
-
-`.claude/skills/app-builder/decisions/<index-name>.md`, written by
-`query.py decide` and read by `query.py decisions` and by `shape`.
-
-- **id** — kebab-case, stable, never reused. It is what makes "already asked"
-  answerable, and what `decide` updates in place rather than duplicating.
-- **decision** — what each codebase actually does, with its name. Not "which
-  style is better".
-- **answer** — the user's words, not a paraphrase that drifts.
-
-An answer is a standing instruction, not a cache: apply it without mentioning
-it, unless the request contradicts it, in which case the request wins and you
-re-record the row under the same id.
-
-It sits beside `.data/`, not inside it, and the difference is the point. An
-index is derived: delete it and `index.py` rebuilds it in seconds. An answer is
-not derived from anything — it exists only because someone was asked — so it
-must not live in the directory documented as safe to throw away. It also
-contains no one else's source, which is why it is the one artefact here that
-belongs in version control.
-
-If the codebases in the index change, old rows may no longer describe anything
-real. Leave them; a stale row that never matches costs nothing, and deleting
-one loses a decision the user made.
-
 ## Index scale
 
 The index holds one record per module, class and module-level function —
