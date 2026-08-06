@@ -31,9 +31,10 @@ import re
 import shutil
 from collections import Counter, defaultdict
 
-from _common import (configured_repositories, configured_solution,
-                     decisions_path, find_files, load_config, pct, read_index,
-                     skill_root, truncate, workspace)
+from _common import (configured_questions, configured_repositories,
+                     configured_solution, decisions_path, find_files,
+                     load_config, pct, read_index, skill_root, truncate,
+                     workspace)
 
 # ---------------------------------------------------------------- filtering
 
@@ -306,6 +307,23 @@ def cmd_config(args):
           f"{target['name']:<20} {target['path']}")
     print("              indexed with the sources; where it has already diverged,"
           "\n              it is the later decision and it wins")
+
+    budget = configured_questions()
+    print(f"\nQUESTIONS     {budget}   "
+          + ("decide everything and report it; never interrupt"
+             if budget == 0 else
+             f"ask at most {budget} before generating -- the ones that cost"))
+    if budget:
+        print("              most to get wrong. Everything else is decided and")
+        print("              listed afterwards, where you can still change it.")
+    store = decisions_path("x").parent
+    files = sorted(store.glob("*.md")) if store.is_dir() else []
+    if files:
+        print("DECISIONS     " + ", ".join(
+            f"{f.stem}: {len(read_decisions(f.stem))}" for f in files)
+            + f"   ({store})")
+    else:
+        print(f"DECISIONS     none recorded yet   ({store})")
 
     data = skill_root() / ".data"
     built = sorted(p.name for p in data.iterdir() if p.is_dir()) if data.is_dir() else []
@@ -1434,8 +1452,9 @@ def main() -> int:
     add_kind_and_tech(p)
     p.add_argument("--usually", type=int, default=60,
                    help="percent above which an attribute counts as universal")
-    p.add_argument("--limit", type=int, default=3,
-                   help="the budget: how many questions are worth a person's time")
+    p.add_argument("--limit", type=int, default=configured_questions(),
+                   help="the budget: how many questions are worth a person's "
+                        "time. Defaults to `questions` in config.json")
     p.set_defaults(fn=cmd_questions)
 
     p = sub.add_parser("decisions", help="answers already given, so they are not asked twice")

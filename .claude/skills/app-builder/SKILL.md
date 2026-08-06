@@ -44,10 +44,15 @@ paths that are already there.
 {
   "app-builder": {
     "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
-    "solution": "solution.university"
+    "solution": "solution.university",
+    "questions": 3
   }
 }
 ```
+
+`questions` is the budget for step 6: how many decisions may be raised *before*
+generating. `0` means never interrupt. It governs interruption only -- the full
+list of choices is reported either way.
 
 `solution` may be a plain path or an object carrying `exclude`, for the rare tree
 that genuinely is not source.
@@ -66,9 +71,13 @@ against, so it is worth choosing well. `solution` is where generated
 applications are built, relative to this repository unless absolute.
 
 **With one repository configured, `DISAGREEMENTS` never fires** — there is
-nothing to disagree with, and step 6 has nothing to settle. Combining the best
-of several codebases needs several entries here. If the user asks for that with
-one configured, say so rather than implying a comparison happened.
+nothing to disagree with. Combining the best of several codebases needs several
+entries here, and if the user asks for that with one configured, say so rather
+than implying a comparison happened.
+
+Step 6 still has work to do, though: most decisions are not disagreements
+between codebases but forks *inside* one, and `questions` finds those in a
+single repository.
 
 ## The target is a codebase too, and it outranks the source
 
@@ -287,23 +296,42 @@ travels, which is the path yours must travel too.
 Find that chain now, before generating, so the files it forces you to edit are
 part of the plan rather than a discovery afterwards.
 
-### 6. Settle disagreements — ask once, not every time
+### 6. Settle the decisions — ask once, and only what is worth asking
 
 ```bash
-scripts/query.py decisions --name <index-name>
+scripts/query.py decisions --name <index-name>          # already answered
+scripts/query.py questions --name <index-name> --path '<layer>'
 ```
 
-If a recorded answer settles a disagreement, apply it silently. `shape` also
-prints these under `DISAGREEMENTS`, so the two questions — what differs, and
-what was already decided — arrive together.
+`questions` ranks the decisions this layer forces by **what they cost to get
+wrong** — how irreversible the kind of choice is, how genuinely forked the layer
+is, and whether the majority form is a fossil. It already excludes anything
+recorded in `decisions/`, anything the target has settled, and anything that is
+really the domain rather than a decision.
 
-For anything not recorded, ask the user — one question per genuine
-disagreement, with what each codebase actually does and the counts. Then record
-the answer, in their words:
+**`--limit` is a budget, and it comes from `questions` in `config.json`.** It
+governs *interruption, not information*: whatever the number, every generation
+still ends with the full list of choices in step 9, where the user can change
+any of them. The dial only decides how many are raised in advance.
+
+- **`questions: 0`** — ask nothing. Decide everything, generate, and put every
+  choice in the report. This is the right setting for a user who would rather
+  react to code than to questions.
+- **`questions: N`** — ask at most the top N *before* writing anything. Ask them
+  in one message, not one at a time, with what each codebase actually does and
+  the counts. Everything below the line is decided, not asked, and listed
+  afterwards.
+
+Asking about something the index already answers is a bug, not diligence — the
+same rule as "configured, not asked for". If `questions` reports far more
+candidates than there are members, the set is several families at once: narrow
+it and re-run, because those questions will be the wrong ones.
+
+Then record the answer, in the user's words, under the id `questions` gave it:
 
 ```bash
-scripts/query.py decide --name <index-name> --id primary-key-type \
-    --decision "atlas: Uuid surrogate keys. other: natural String keys." \
+scripts/query.py decide --name <index-name> --id attrdetail-id \
+    --decision "atlas: Mapped[UUID] surrogate x2, Mapped[str] natural key x1" \
     --answer "Uuid"
 ```
 
@@ -437,9 +465,37 @@ the one that would exercise what you generated. If there is none, say so
 plainly rather than calling the
 work verified.
 
-### 9. Report
+### 9. Report — and end with the choices, numbered
 
-State, briefly:
+Every generation ends with the choices you made, numbered, whatever the
+`questions` budget was. This is the half of the decision process that does not
+interrupt: a person reacts to a concrete artefact far more easily than to an
+abstract question, and by the time they see the list the code already exists to
+look at.
+
+```
+CHOICES -- say a number to change one, and I will re-run that part
+  1. primary key      Uuid surrogate            2 of 3 sources; the third uses
+                                                a natural String key
+  2. timestamps       created_at only           87% have it; updated_at is 12%
+  3. delete behaviour ondelete='CASCADE'        the layer varies; the request
+                                                said "belongs to"
+  4. table naming     snake_case plural         ALWAYS in the source
+```
+
+Rules for that list, and they are what make it useful rather than decorative:
+
+- **Every choice that was not forced.** If `shape` said ALWAYS, it was contract
+  and it is not a choice — say that once, and do not pad the list with it.
+- **Say what it was weighed against**, with the counts. A choice with no
+  alternative shown cannot be judged.
+- **Carry the `questions` id** where one exists, so an answer can be recorded
+  and never asked again:
+  `decide --name <index> --id <id> --answer "<their words>"`.
+- **Anything the user changes is a decision**, not a correction. Record it under
+  the same id, then re-run only the part it affects.
+
+Then state, briefly:
 
 - which exemplar the structure came from, by path
 - what you reproduced because it was contract

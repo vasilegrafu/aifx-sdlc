@@ -132,6 +132,21 @@ def configured_solution() -> dict:
             "is_target": True}
 
 
+def configured_questions(default: int = 3) -> int:
+    """How many questions may be asked *before* generating: a budget, not a level.
+
+    It governs interruption, not information. Whatever the number, every
+    generation still ends with the full list of choices made -- the dial only
+    decides how many of them are raised in advance instead of afterwards. Zero
+    means never interrupt: decide everything, and say what was decided.
+    """
+    value = load_config().get("questions", default)
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
 def solution_dir() -> Path:
     """Where generated applications are built. Named in config.json; `solution` if absent."""
     return configured_solution()["path"]

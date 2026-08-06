@@ -45,6 +45,25 @@ Point it at codebases in `config.json`, at the root of this repository:
   holds a layer it **outranks the sources** for that layer: a convention it
   deliberately dropped will not be reintroduced from a source that still has it.
 - Either entry may take `"exclude": ["some/dir"]` for a tree that is not source.
+- **`questions`** — how many decisions may be put to you *before* code is
+  written. It is a budget, not a verbosity level: `3` means "ask me the three
+  that cost most to get wrong". Set it to `0` and nothing interrupts you.
+
+That last one governs **interruption, not information**. Whatever the number,
+every generation ends with the full numbered list of choices made and what each
+was weighed against, and you can change any of them then. The dial only decides
+how many are raised in advance instead of afterwards — some people would rather
+answer questions, others would rather react to code that exists.
+
+```json
+{
+  "app-builder": {
+    "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
+    "solution": "solution.university",
+    "questions": 3
+  }
+}
+```
 
 Check it before anything else:
 
