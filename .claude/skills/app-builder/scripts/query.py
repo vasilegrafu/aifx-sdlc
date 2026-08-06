@@ -28,8 +28,8 @@ import json
 import re
 from collections import Counter, defaultdict
 
-from _common import (configured_repositories, configured_solution, load_config,
-                     pct, read_index,
+from _common import (configured_repositories, configured_solution,
+                     decisions_path, load_config, pct, read_index,
                      skill_root, truncate, workspace)
 
 # ---------------------------------------------------------------- filtering
@@ -51,6 +51,21 @@ def add_filters(ap):
     ap.add_argument("--symbol", help="regex on the class/function name")
     ap.add_argument("--repo", help="restrict to one repository")
     ap.add_argument("--lang", help="restrict to one language, e.g. python, typescript")
+
+
+def add_kind_and_tech(ap):
+    """The two filters that only the measuring commands can honour.
+
+    `--tech` needs the whole index before it can filter, and `--kind` chooses
+    what is being measured, so neither belongs in the shared filter set that
+    `calls` and `imports` also use.
+    """
+    ap.add_argument("--kind", choices=("class", "func"), default="class",
+                    help="what to describe: classes (default), or module-level "
+                         "functions -- components, hooks and handlers are functions")
+    ap.add_argument("--tech", metavar="NAME",
+                    help="restrict to modules importing this technology, e.g. "
+                         "react, sqlalchemy, aspnet (see TECHNOLOGIES)")
 
 
 def matches(rec, args) -> bool:
@@ -77,21 +92,120 @@ def matches(rec, args) -> bool:
 
 
 def collect(args, kinds=("class",)):
-    return [r for r in read_index(args.name) if r["k"] in kinds and matches(r, args)]
+    """Matching definitions, plus the technology map they are filtered by.
+
+    One pass. A definition's technology is a property of the module that holds
+    it, so the map has to be complete before anything can be filtered by it --
+    which is why the filter is applied at the end rather than per record.
+    """
+    recs, tech, other = [], {}, 0
+    for r in read_index(args.name):
+        if r["k"] == "module":
+            found = technologies_of(r.get("imports"))
+            if found:
+                tech[(r["repo"], r["path"])] = found
+        elif r["k"] in kinds and matches(r, args):
+            recs.append(r)
+        elif r["k"] == "func" and matches(r, args):
+            # Counted so `shape` can say that the filter also matched functions
+            # it is not describing -- silence there reads as "there is nothing".
+            other += 1
+    args._tech, args._other_kind = tech, other
+    want = getattr(args, "tech", None)
+    if want:
+        recs = [r for r in recs if want in tech.get((r["repo"], r["path"]), ())]
+    return recs
+
+
+def describe_size(rec) -> str:
+    if rec["k"] == "func":
+        return (f"{len(rec.get('params', ()))} params,"
+                f" {len(rec.get('invokes', ())) + len(rec.get('calls', ()))} calls")
+    return f"{len(rec['attrs'])} attrs, {len(rec['methods'])} methods"
+
+
+def kinds_for(args) -> tuple[str, ...]:
+    """`shape` and `exemplars` describe one kind at a time, deliberately.
+
+    A layer of classes and a layer of functions have different shapes, and
+    measuring them together reports a form neither one has -- the same error as
+    averaging two codebases.
+    """
+    return ("func",) if getattr(args, "kind", "class") == "func" else ("class",)
 
 
 # ---------------------------------------------------------------- features
 
 
-def features(cls) -> set[str]:
-    f = {f"base:{head(b)}" for b in cls["bases"]}
-    f |= {f"classdec:{head(d)}" for d in cls["decorators"]}
-    f |= {f"assign:{a['name']}" for a in cls["assigns"]}
-    f |= {f"attr:{a['name']}" for a in cls["attrs"]}
-    f |= {f"attrcall:{a['call']}" for a in cls["attrs"] if a["call"]}
-    f |= {f"method:{m['name']}" for m in cls["methods"]}
-    for m in cls["methods"]:
+def param_names(param: str) -> list[str]:
+    """The names a parameter binds.
+
+    A destructured parameter is recorded as its source text, because that is
+    the honest record of what was written -- but `{ sx = undefined, children,
+    ...props }` is one useless feature where it should be three useful ones.
+    A component layer's real contract is that every component takes `children`,
+    and that is only visible once the blob is split.
+    """
+    p = (param or "").strip()
+    if not (p.startswith("{") or p.startswith("[")):
+        return [p.split(":", 1)[0].strip().lstrip("*&") or p]
+    out, depth, current = [], 0, ""
+    for ch in p[1:-1] if len(p) > 1 else "":
+        if ch in "{[(":
+            depth += 1
+        elif ch in "}])":
+            depth -= 1
+        if ch == "," and depth == 0:
+            out.append(current)
+            current = ""
+        else:
+            current += ch
+    out.append(current)
+    names = []
+    for item in out:
+        # `children`, `sx = undefined`, `a: b`, `...props` -- the bound name is
+        # what stands before a default or a rename.
+        name = item.split("=", 1)[0].split(":", 1)[0].strip().lstrip(".").strip()
+        if name and all(c.isalnum() or c in "_$" for c in name):
+            names.append(name)
+    return names or ["(destructured)"]
+
+
+def features(rec) -> set[str]:
+    """The comparable shape of one definition, as a set of `kind:item` strings.
+
+    Both record kinds reduce to the same form, so `shape`, `exemplars` and
+    `conform` can measure a layer of classes and a layer of functions with one
+    piece of machinery.
+
+    What a definition *calls* is part of its shape. In a class-based data layer
+    that is a minor signal next to its attributes; in a React or hook-based
+    codebase it is nearly the whole convention, because nothing is declared --
+    `useState`, `useSelector` and a codebase's own `useConfig` appear only as
+    calls, and a measure that ignored them would report that such a layer has
+    no conventions at all.
+    """
+    if rec["k"] == "func":
+        f = {f"funcdec:{head(d)}" for d in rec.get("decorators", ())}
+        f |= {f"param:{n}" for p in rec.get("params", ()) for n in param_names(p)}
+        if rec.get("returns"):
+            f.add(f"returns:{head(rec['returns'])}")
+        if rec.get("async"):
+            f.add("modifier:async")
+        f |= {f"invoke:{i}" for i in rec.get("invokes", ())}
+        f |= {f"call:{c}" for c in rec.get("calls", ())}
+        return f
+
+    f = {f"base:{head(b)}" for b in rec["bases"]}
+    f |= {f"classdec:{head(d)}" for d in rec["decorators"]}
+    f |= {f"assign:{a['name']}" for a in rec["assigns"]}
+    f |= {f"attr:{a['name']}" for a in rec["attrs"]}
+    f |= {f"attrcall:{a['call']}" for a in rec["attrs"] if a["call"]}
+    f |= {f"method:{m['name']}" for m in rec["methods"]}
+    for m in rec["methods"]:
         f |= {f"methoddec:{head(d)}" for d in m["decorators"]}
+        f |= {f"invoke:{i}" for i in m.get("invokes", ())}
+        f |= {f"call:{c}" for c in m.get("calls", ())}
     return f
 
 
@@ -100,7 +214,47 @@ LABELS = {
     "assign": "class-level assignments", "attr": "attributes",
     "attrcall": "attribute constructors", "method": "methods",
     "methoddec": "method decorators",
+    "funcdec": "decorators", "param": "parameters", "returns": "returns",
+    "modifier": "modifiers",
+    "invoke": "functions called", "call": "calls on a receiver",
 }
+
+# A technology is not a language: React is JavaScript, SQLAlchemy is Python,
+# and neither is a thing to parse. Both are visible in what a module imports,
+# so they are derived here at query time rather than stamped into the index --
+# improving this table costs nothing and never needs a rebuild.
+TECHNOLOGIES = {
+    "react": ("react", "react-dom", "next", "preact"),
+    "redux": ("react-redux", "@reduxjs/toolkit", "redux"),
+    "mui": ("@mui", "@emotion"),
+    "vue": ("vue", "nuxt"),
+    "angular": ("@angular",),
+    "svelte": ("svelte",),
+    "vitest": ("vitest",),
+    "jest": ("jest", "@testing-library"),
+    "sqlalchemy": ("sqlalchemy",),
+    "django": ("django",),
+    "flask": ("flask",),
+    "fastapi": ("fastapi", "starlette"),
+    "pydantic": ("pydantic",),
+    "pandas": ("pandas", "numpy"),
+    "pytest": ("pytest", "unittest"),
+    "aspnet": ("Microsoft.AspNetCore",),
+    "efcore": ("Microsoft.EntityFrameworkCore",),
+    "xunit": ("Xunit", "NUnit", "Moq"),
+    "blazor": ("Microsoft.AspNetCore.Components",),
+}
+
+
+def technologies_of(imports) -> set[str]:
+    out = set()
+    for imp in imports or ():
+        mod = imp.get("mod") or ""
+        for tech, prefixes in TECHNOLOGIES.items():
+            if any(mod == p or mod.startswith(p + ".") or mod.startswith(p + "/")
+                   for p in prefixes):
+                out.add(tech)
+    return out
 
 # ---------------------------------------------------------------- commands
 
@@ -223,6 +377,70 @@ def cmd_proof(args):
         print(f"      ... {len(entries) - args.limit} more")
 
 
+HEADER = ("# Decisions\n\n"
+          "Answers to disagreements between the indexed codebases. Read before\n"
+          "asking. An answer here is a standing instruction: apply it silently,\n"
+          "unless the request contradicts it, in which case the request wins and\n"
+          "the row is updated.\n\n"
+          "| id | decision | answer | asked |\n"
+          "|----|----------|--------|-------|\n")
+
+
+def read_decisions(name: str) -> list[dict]:
+    path = decisions_path(name)
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 4 or cells[0] in ("id", "") or set(cells[0]) <= {"-", ":"}:
+            continue
+        rows.append(dict(zip(("id", "decision", "answer", "asked"), cells)))
+    return rows
+
+
+def cmd_decisions(args):
+    """What has already been settled, so it is not asked again."""
+    rows = read_decisions(args.name)
+    path = decisions_path(args.name)
+    if not rows:
+        return print(f"no decisions recorded for {args.name!r}\n  {path}\n\n"
+                     "Record one after asking:\n"
+                     "  query.py decide --name X --id primary-key-type \\\n"
+                     "      --decision 'atlas: Uuid surrogate. other: natural key.' \\\n"
+                     "      --answer Uuid")
+    print(f"{len(rows)} decision(s)   {path}\n")
+    width = max(len(r["id"]) for r in rows)
+    for r in rows:
+        print(f"  {r['id']:<{width}}  {r['answer']}     ({r['asked']})")
+        print(f"  {'':<{width}}  {r['decision']}")
+
+
+def cmd_decide(args):
+    """Record an answer. Updating an id replaces it -- the later word wins."""
+    path = decisions_path(args.name)
+    rows = read_decisions(args.name)
+    asked = args.asked or datetime.date.today().isoformat()
+    new = {"id": args.id, "decision": args.decision or "", "answer": args.answer,
+           "asked": asked}
+    existing = next((r for r in rows if r["id"] == args.id), None)
+    if existing:
+        if not args.decision:
+            new["decision"] = existing["decision"]
+        rows[rows.index(existing)] = new
+        verb = "updated"
+    else:
+        rows.append(new)
+        verb = "recorded"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    body = "".join(f"| {r['id']} | {r['decision']} | {r['answer']} | {r['asked']} |\n"
+                   for r in rows)
+    path.write_text(HEADER + body, encoding="utf-8")
+    print(f"{verb} {args.id!r} -> {args.answer!r}\n  {path}")
+
+
 def cmd_meta(args):
     path = workspace(args.name) / "meta.json"
     if not path.exists():
@@ -306,11 +524,13 @@ def stamp(rec) -> int:
 
 
 def cmd_shape(args):
-    recs = collect(args)
+    recs = collect(args, kinds=kinds_for(args))
     if not recs:
-        return print("nothing matched -- widen --path or drop --base")
+        return print("nothing matched -- widen --path, drop --base,"
+                     " or try --kind func")
     total = len(recs)
     per_repo = Counter(r["repo"] for r in recs)
+    noun = "functions" if recs[0]["k"] == "func" else "classes"
 
     counts = Counter()
     repo_counts = defaultdict(Counter)
@@ -325,10 +545,26 @@ def cmd_shape(args):
     set_oldest = min((stamp(r) for r in recs if stamp(r)), default=0)
     ageing = 365 * 24 * 3600
 
-    print(f"{total} classes"
+    print(f"{total} {noun}"
           + (f"  ({', '.join(f'{k} {v}' for k, v in per_repo.items())})"
              if len(per_repo) > 1 else f"  in {next(iter(per_repo))}")
           + f"   touched {when(set_oldest)} .. {when(set_newest)}")
+
+    # What the layer is built on. A frontend layer's real contract is often the
+    # framework rather than anything it declares, and this is the line that says
+    # which one to read the rest of the output against.
+    tech = Counter()
+    for r in recs:
+        for t in args._tech.get((r["repo"], r["path"]), ()):
+            tech[t] += 1
+    if tech:
+        print("  built on: " + ", ".join(f"{t} ({pct(n, total)}%)"
+                                         for t, n in tech.most_common(6)))
+    if noun == "classes" and args._other_kind > total:
+        print(f"  note: {args._other_kind} module-level functions also match this"
+              f" filter and are not\n        described here. If this layer's unit is"
+              f" the function -- components,\n        hooks, handlers -- run --kind"
+              f" func.")
 
     for kind, label in LABELS.items():
         items = [(f.split(":", 1)[1], n) for f, n in counts.items()
@@ -357,12 +593,12 @@ def cmd_shape(args):
     # being `Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)`.
     by_attr: dict[str, list] = defaultdict(list)
     for r in recs:
-        for a in r["attrs"]:
+        for a in r.get("attrs", ()):
             by_attr[a["name"]].append(a)
     detailed = [(n, a) for n, a in by_attr.items()
                 if pct(len(a), total) >= args.usually]
     if detailed:
-        print(f"\n== ATTRIBUTE DETAIL ==   (present in >= {args.usually}% of classes)")
+        print(f"\n== ATTRIBUTE DETAIL ==   (present in >= {args.usually}% of {noun})")
         print("   the modal form, and how much of the layer agrees on it\n")
         width = max(len(n) for n, _ in detailed)
         for name, uses in sorted(detailed, key=lambda x: -len(x[1]))[: args.limit]:
@@ -408,6 +644,12 @@ def cmd_shape(args):
         else:
             print("   one repository always does this, another never does."
                   "\n   These are decisions, not averages. Ask before choosing.\n")
+        settled = read_decisions(args.name)
+        if settled:
+            print("   already settled -- apply these silently, do not ask again:")
+            for d in settled:
+                print(f"     {d['id']}: {d['answer']}   ({d['asked']})")
+            print()
         found = False
         for f, by_repo in repo_counts.items():
             hi = [(r, by_repo.get(r, 0), n) for r, n in per_repo.items()
@@ -432,10 +674,12 @@ def cmd_shape(args):
 
 
 def cmd_exemplars(args):
-    recs = collect(args)
+    recs = collect(args, kinds=kinds_for(args))
     if not recs:
-        return print("nothing matched -- widen --path or drop --base")
+        return print("nothing matched -- widen --path, drop --base,"
+                     " or try --kind func")
     total = len(recs)
+    noun = "functions" if recs[0]["k"] == "func" else "classes"
     counts = Counter()
     for r in recs:
         counts.update(features(r))
@@ -446,7 +690,8 @@ def cmd_exemplars(args):
         f = features(r)
         # reward the shared shape, penalise what nothing else has
         rare = sum(1 for x in f - modal if counts[x] <= max(1, total * 0.1))
-        size = len(r["attrs"]) + len(r["methods"])
+        size = len(r.get("attrs", ())) + len(r.get("methods", ())) \
+            + len(r.get("params", ()))
         # most modal features wins; then fewest oddities; then the fuller class,
         # because an empty class is a poor thing to copy even when it is typical
         scored.append((-(len(f & modal) - rare), rare, -size, r))
@@ -455,8 +700,7 @@ def cmd_exemplars(args):
     print("MOST TYPICAL -- copy the structure of these\n")
     for negscore, _, _, r in scored[: args.n]:
         print(f"  {r['repo']}/{r['path']}:{r['line']}  {r['name']}"
-              f"  [{len(r['attrs'])} attrs, {len(r['methods'])} methods,"
-              f" score {-negscore}]")
+              f"  [{describe_size(r)}, score {-negscore}]")
 
     print("\nMOST ATYPICAL -- read one to learn which parts are optional\n")
     for negscore, _, _, r in scored[-args.n:][::-1]:
@@ -470,7 +714,7 @@ def cmd_exemplars(args):
         if extra:
             print(f"      alone in having: {', '.join(extra)}")
 
-    print(f"\n{total} classes considered. Read the typical one in full before "
+    print(f"\n{total} {noun} considered. Read the typical one in full before "
           f"generating; read the atypical one to see what is optional.")
 
 
@@ -678,11 +922,14 @@ def main() -> int:
     add_filters(p)
     p.add_argument("--files", action="store_true", help="print unique file paths only")
     p.add_argument("--functions", action="store_true", help="include module-level functions")
+    p.add_argument("--tech", metavar="NAME",
+                   help="restrict to modules importing this technology, e.g. react")
     p.add_argument("--limit", type=int, default=60)
     p.set_defaults(fn=cmd_find)
 
     p = sub.add_parser("shape", help="what is ALWAYS true vs. what VARIES")
     add_filters(p)
+    add_kind_and_tech(p)
     p.add_argument("--usually", type=int, default=60,
                    help="percent above which a feature counts as usual")
     p.add_argument("--limit", type=int, default=25)
@@ -690,6 +937,7 @@ def main() -> int:
 
     p = sub.add_parser("exemplars", help="the file to copy, and the outlier")
     add_filters(p)
+    add_kind_and_tech(p)
     p.add_argument("-n", type=int, default=3)
     p.set_defaults(fn=cmd_exemplars)
 
@@ -718,6 +966,19 @@ def main() -> int:
     p.add_argument("--target-path", required=True, help="glob selecting the generated layer")
     p.add_argument("--target-repo", help="restrict the target side to one repository")
     p.set_defaults(fn=cmd_conform)
+
+    p = sub.add_parser("decisions", help="answers already given, so they are not asked twice")
+    p.add_argument("--name", default="default")
+    p.set_defaults(fn=cmd_decisions)
+
+    p = sub.add_parser("decide", help="record the answer to a disagreement")
+    p.add_argument("--name", default="default")
+    p.add_argument("--id", required=True, metavar="KEBAB-CASE",
+                   help="stable, never reused -- it is what makes 'already asked' answerable")
+    p.add_argument("--answer", required=True, help="the user's words, not a paraphrase")
+    p.add_argument("--decision", help="what each codebase actually does, with its name")
+    p.add_argument("--asked", help="ISO date; today if omitted")
+    p.set_defaults(fn=cmd_decide)
 
     p = sub.add_parser("proof", help="how a codebase proves itself -- tests, entry points")
     p.add_argument("--name", default="default")

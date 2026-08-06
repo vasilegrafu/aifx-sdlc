@@ -216,10 +216,24 @@ Read the output as separate instructions, not as a report:
 - **DISAGREEMENTS** — printed only when the index holds more than one codebase.
   Handle it in step 6.
 
+- **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the layer's vocabulary. What a
+  definition calls is part of its shape, and in a framework layer it is nearly
+  all of it: `useState` and a codebase's own `useConfig` are declared nowhere.
+  `ALWAYS StandardDbCtrl.filter` across a controller layer is as binding as any
+  base class.
+
 `--usually` moves the threshold between *usual* and *varies*; the default is 60.
 `--lang` narrows to one language when an index holds more than one — a backend
 and its frontend have different conventions, and averaging them reports a form
 neither one uses.
+
+**`--kind func` when the layer's unit is not a class.** A React component, a
+hook, a route handler and most modern JavaScript are functions, and the default
+`--kind class` will report that a directory of forty components contains
+nothing. `shape` warns when the filter matched more functions than classes;
+believe it. `--tech react|sqlalchemy|aspnet|...` narrows to modules importing a
+technology, which is how a framework layer is separated from the application
+around it.
 
 ### 4. Read the exemplars — and only these
 
@@ -275,18 +289,32 @@ part of the plan rather than a discovery afterwards.
 
 ### 6. Settle disagreements — ask once, not every time
 
-Read `.claude/skills/app-builder/.data/<index-name>/decisions.md` first. If it already
-answers a disagreement, apply the recorded answer silently.
+```bash
+scripts/query.py decisions --name <index-name>
+```
+
+If a recorded answer settles a disagreement, apply it silently. `shape` also
+prints these under `DISAGREEMENTS`, so the two questions — what differs, and
+what was already decided — arrive together.
 
 For anything not recorded, ask the user — one question per genuine
-disagreement, with what each codebase actually does and the counts. Then append
-the answer to that file:
+disagreement, with what each codebase actually does and the counts. Then record
+the answer, in their words:
 
-```markdown
-| id | decision | answer | asked |
-|----|----------|--------|-------|
-| primary-key-type | atlas uses Uuid surrogate keys; other uses natural String keys | Uuid | 2026-08-05 |
+```bash
+scripts/query.py decide --name <index-name> --id primary-key-type \
+    --decision "atlas: Uuid surrogate keys. other: natural String keys." \
+    --answer "Uuid"
 ```
+
+The file lives in `decisions/<index-name>.md`, **not** in `.data/` — an index
+rebuilds in seconds and an answer cannot be recovered from anything, so it is
+kept out of the directory that is safe to delete, and it is meant to be
+committed.
+
+An answer is a standing instruction, not a cache. Apply it without mentioning
+it, unless the request contradicts it — then the request wins and you re-record
+the row under the same id.
 
 Never average two codebases into a form neither one uses.
 
@@ -328,10 +356,21 @@ that has nothing to do with the code.
 nothing imports, which is the failure step 5 exists to prevent.
 
 `smoke.py` checks **Python**; hand it anything else and it says so rather than
-counting it as passing. For TypeScript, rung 1 is `tsc --noEmit`, and the barrel
-chain is already answered from the index by `imports <Symbol> --chain` — an
-`index.ts` that fails to re-export is the same failure as an `__init__.py` that
-does, and it is just as silent.
+counting it as passing. The other three have their own rung 1, and
+`query.py proof` prints the one that fits each language it found:
+
+| Language | Rung 1 |
+|---|---|
+| Python | `smoke.py` — imports, and something imports it |
+| TypeScript | `tsc --noEmit` |
+| JavaScript | `node --check <file>` per file, or the project's lint script |
+| C# | `dotnet build` |
+
+Only the Python rung checks reachability, because only in Python does an
+unimported class silently fail to register. The barrel chain is answered from
+the index in every language by `imports <Symbol> --chain` — an `index.ts` that
+fails to re-export is the same failure as an `__init__.py` that does, and it is
+just as silent.
 
 Then re-index and ask the two questions nothing else answers — whether the
 output still keeps the contract that produced it, and whether it calls anything
@@ -424,14 +463,17 @@ the nearest layer as a source of conventions instead.
 ## Boundaries
 
 - **Python, TypeScript, JavaScript and C#** — four languages, four extractors,
-  each on its own parser. All read by their own
-  compiler's parser, never by pattern matching, and every record says which
-  language produced it and at what fidelity. TypeScript needs `node` and the
-  project's own `node_modules/typescript`; C# needs the .NET SDK — each present
-  by definition in a codebase of that language. Nothing else is covered and must
-  not be guessed at: a language with no extractor, or with its toolchain
-  missing, is reported as **skipped**, never as absent. `references/languages.md`
-  holds the mapping, the traps, and how to add one.
+  each on a real parser rather than on pattern matching, and every record says
+  which language produced it and at what fidelity. Python needs nothing;
+  TypeScript needs `node` and the project's own `node_modules/typescript`;
+  JavaScript needs `node` and `acorn`; C# needs the .NET SDK — each present by
+  definition in a codebase of that language. Nothing else is covered and must
+  not be guessed at. A language whose toolchain is missing, and a file type no
+  extractor claims, are both **reported** — as `skipped` and as `not covered` in
+  `meta` — never treated as absent. Check `meta` before concluding that a
+  codebase does not do something: absent evidence and absent convention look
+  identical in `shape` and are not the same thing.
+  `references/languages.md` holds the mapping, the traps, and how to add one.
 - The index holds facts derived from other people's repositories. It lives in
   `.data/` beside this file — inside a tracked skill, so it must stay ignored,
   and nothing from it belongs in a tracked file.

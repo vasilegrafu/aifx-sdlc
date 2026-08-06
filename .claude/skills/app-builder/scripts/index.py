@@ -165,6 +165,10 @@ def main() -> int:
     per_language: dict[str, int] = {}
     fidelity: dict[str, str] = {}
     skipped_languages: list[tuple] = []
+    # File types that are plainly source in *some* language and that no
+    # extractor here claims. Reported, never silently dropped: `shape` cannot
+    # distinguish "this codebase has no components" from "nothing read them".
+    uncovered: dict[str, int] = {}
 
     with out_path.open("w", encoding="utf-8", newline="\n") as fh:
         for target in targets:
@@ -191,7 +195,8 @@ def main() -> int:
             # per file turns a two-second index into minutes.
             by_language: dict[str, list[Path]] = defaultdict(list)
             for path in iter_source_files(root, args.max_bytes,
-                                          target.get("exclude", ()), ALL_EXTENSIONS):
+                                          target.get("exclude", ()), ALL_EXTENSIONS,
+                                          uncovered=uncovered):
                 try:
                     real = str(path.resolve())
                 except OSError:
@@ -255,6 +260,7 @@ def main() -> int:
                       for lang, n in sorted(per_language.items())},
         "skipped": [{"repo": r, "language": l, "files": n, "reason": why}
                     for r, l, n, why in skipped_languages],
+        "not_covered": dict(sorted(uncovered.items(), key=lambda kv: -kv[1])),
         "built": time.strftime("%Y-%m-%d %H:%M:%S"),
         "seconds": round(time.time() - started, 1),
     }
@@ -263,6 +269,14 @@ def main() -> int:
     size_mb = out_path.stat().st_size / 1e6
     print(f"\nindexed {files} files -> {classes} classes, {funcs} functions"
           f"{f', {unparsed} unparsed' if unparsed else ''}")
+    if uncovered:
+        top = sorted(uncovered.items(), key=lambda kv: -kv[1])[:8]
+        print("not covered: " + ", ".join(f"{n} {ext}" for ext, n in top)
+              + (f", and {len(uncovered) - len(top)} more types"
+                 if len(uncovered) > len(top) else "")
+              + "\n  no extractor reads these, so nothing about them is in the"
+                " index -- do not\n  read their absence from `shape` as their"
+                " absence from the codebase.")
     print(f"{out_path}  ({size_mb:.1f} MB, {meta['seconds']}s)")
     print("\nDo not read this file. Query it:")
     print(f"  scripts/query.py layers --name {args.name}")

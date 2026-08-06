@@ -71,8 +71,15 @@ treated as absent.
 
 ## Quick start
 
+`--name` names the **index**, not a repository. One index holds every configured
+repository *plus* the solution, each under its own name, and holding them
+together is what makes `DISAGREEMENTS` possible. `index.py` has no per-repository
+filter; `query.py --repo` is where you narrow to one. So `--name atlas` below
+builds an index that also contains `solution.university` — the name is a label,
+not a selection.
+
 ```bash
-# 1. build the index (reads config.json)
+# 1. build the index: every configured repository, plus the solution
 ./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py --name atlas
 
 # 2. what is in there
@@ -112,6 +119,10 @@ Everything else is navigation. This is the output that tells you what a layer
       also: Mapped[str] x1; mapped_column(String(256), primary_key) x1
 == AGEING ==
   2023-01  methods: p  (16%)
+== DISAGREEMENTS ==
+   solution.university is the generated target, not another source.
+   Where it differs it has already decided, and it wins.
+  attributes: schema        atlas 3/3, solution.university 0/9
 ```
 
 Read it as instructions, not as a report:
@@ -131,9 +142,36 @@ Read it as instructions, not as a report:
 - **DISAGREEMENTS** — appears when the index holds more than one codebase. If
   one side is your generated target, it has already decided and it wins.
 
+- **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the layer's vocabulary. For a
+  data layer this is a minor section; for anything built on a framework it is
+  the main one, because nothing is declared. `ALWAYS StandardDbCtrl.filter`
+  across nine controllers is as much a contract as any base class, and a tenth
+  controller calling `.where` instead is the kind of thing that reaches
+  production because it parses.
+
 `--usually 50` moves the line between *usual* and *varies*. `--lang python`
 narrows when an index holds a backend and a frontend — averaging the two
 describes a form neither one uses.
+
+### The same command, on a React layer
+
+```bash
+scripts/query.py shape --name X --kind func --tech react --path 'webapp/src/components/*'
+```
+
+```
+25 functions  in atlas   touched 2026-06 .. 2026-06
+  built on: react (100%), mui (52%)
+
+== PARAMETERS ==
+  VARIES   children (36%), sx (32%), props (28%)
+== FUNCTIONS CALLED ==
+  VARIES   useState (24%), useEffect (20%), useRef (16%), useConfig (12%)
+```
+
+`useConfig` is the one worth stopping on: a hook this codebase wrote itself.
+Nothing about it is declared anywhere, and a layer's local convention is
+frequently a name like that one.
 
 ---
 
@@ -190,8 +228,10 @@ survives only in files nobody has touched for over a year.
 
 ## Command reference
 
-All commands take `--name <index>`. Filters marked ● are shared by `find`,
-`shape`, `exemplars`, `imports` and `calls`.
+Every command except `config` takes `--name <index>` — `config` reads
+`config.json` and no index, so it is the one thing that works before you have
+built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
+`imports` and `calls`.
 
 | Command | Answers |
 |---|---|
@@ -205,9 +245,31 @@ All commands take `--name <index>`. Filters marked ● are shared by `find`,
 | `calls --on NAME` | methods called on a name vs. the ones it defines |
 | `conform` | whether generated code still keeps the source's contract |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
+| `decisions` | answers already given, so they are not asked twice |
+| `decide --id --answer` | record one |
 
 Shared filters ●: `--path GLOB`, `--not-path GLOB` (repeatable), `--base`,
 `--decorator`, `--symbol REGEX`, `--repo`, `--lang`, `--limit`.
+
+Command-specific: `find --files --functions`, `layers --depth`,
+`shape --usually N` (default 60), `imports --chain`,
+`calls --on NAME --defined-in GLOB`, `conform --target-repo --target-path`.
+
+`shape`, `exemplars` and `find` also take `--tech NAME` — react, mui, redux,
+vue, sqlalchemy, django, fastapi, aspnet, efcore, xunit and others, derived from
+what each module imports rather than stored in the index, so the list improves
+without a rebuild.
+
+`shape` and `exemplars` take `--kind class|func`, and which one you want is not
+a detail. **A React component is a function, not a class.** So is a hook, a
+route handler and most modern JavaScript. `--kind class` (the default) describes
+a layer of classes and would report that a directory of 40 components contains
+nothing at all; `shape` says so when the filter matched more functions than
+classes, but it is worth knowing before you see it.
+
+`--defined-in` is for the case that otherwise gives a wrong answer quietly: when
+two classes in the index share a name, `calls --on` would cross calls made on
+one against the members of both. Narrow it to the file you meant.
 
 **Building an index**
 
@@ -267,8 +329,15 @@ registers. In C# it compiles perfectly, and the equivalent failure is a service
 never added to the container — a different query.
 
 **`conform` compares feature names.** It will tell you a `__table_args__` is
-missing; it will not tell you the schema *inside* it changed. Pair it with
-`calls`, which covers the other half.
+missing, and — since calls are part of a definition's shape — that the generated
+layer stopped calling something every source class calls. It will not tell you
+the schema *inside* `__table_args__` changed. Pair it with `calls --on`, which
+covers the other half.
+
+**A file type with no extractor is invisible to `shape`.** It is counted and
+reported as `not covered` by `index.py` and in `meta`, and that report is the
+only warning you get: `shape` cannot distinguish "this codebase has no
+components" from "nothing read them". Check `meta` before believing an absence.
 
 ---
 
@@ -319,7 +388,11 @@ even when two solutions link to the same library through junctions. `meta` repor
     selftest.py            check that the extractors still agree
     extractors/            one per language
     adapters/              the toolchains they shell out to
+  decisions/               answers you gave — tracked, and not derived
   .data/                   indexes — gitignored, rebuildable, never edited by hand
 ```
 
 Delete `.data/` any time. It is derived, and `index.py` rebuilds it in seconds.
+
+Do not delete `decisions/`. Nothing can rebuild it: those rows exist only
+because someone was asked. That is the whole reason it sits outside `.data/`.

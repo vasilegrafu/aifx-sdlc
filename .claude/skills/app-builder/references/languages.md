@@ -62,8 +62,12 @@ can only be read correctly if the reader knows which they are looking at.
 | `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` |
 | `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` |
 | barrel file | `__init__.py` | `index.ts` | `index.js` | none |
-| rung 1 | `import M` | `tsc --noEmit` | `node --check` | `dotnet build` |
-| rung 2 / 4 | pytest | vitest, `npm run build` | vitest, jest | `dotnet test` |
+| rung 1 | `smoke.py` | `tsc --noEmit` | `node --check` | `dotnet build` |
+| rung 2 | `python -m <entry>` | `npm run build` | `npm run build` | `dotnet run` |
+| rung 4 | pytest | vitest, jest | vitest, jest | `dotnet test` |
+
+Rung 3 is absent from that table on purpose: it is a throwaway script exercising
+the guarantee that fails silently, and no toolchain provides it in any language.
 
 ## What breaks, per language
 

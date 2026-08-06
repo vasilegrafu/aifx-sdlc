@@ -12,9 +12,10 @@ import os
 import sys
 from pathlib import Path
 
-# The config block this skill reads. Earlier names are still accepted: a rename
-# of the skill should not silently stop it finding the codebases it was given.
-CONFIG_KEYS = ("app-builder", "pyapp-builder", "pyapp")
+# The config block this skill reads. If the skill is ever renamed again, append
+# the old name rather than replacing it: a rename should not silently stop it
+# finding the codebases it was given.
+CONFIG_KEYS = ("app-builder",)
 
 # Directories that are never source: build output, caches, vendored copies.
 SKIP_DIRS = {
@@ -35,6 +36,29 @@ SKIP_DIRS = {
 # `dist.prod`, `build.release`. Minified bundles parse perfectly and would be
 # indexed as if they were source, reporting a "convention" no one wrote.
 SKIP_PREFIXES = ("dist.", "build.", "out.")
+
+# Extensions that could never be a language this skill reads: assets, archives,
+# binaries, data, configuration and prose. Everything else that a walk finds and
+# no extractor claims is reported as *not covered*, because a file type nobody
+# mentions reads as a convention that does not exist -- the same error as
+# skipping a language whose toolchain is missing and saying nothing.
+NOT_A_LANGUAGE = {
+    # images, fonts, media
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".ico", ".webp", ".avif",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf", ".mp3", ".mp4", ".wav", ".webm",
+    # archives and binaries
+    ".zip", ".gz", ".tgz", ".tar", ".7z", ".rar", ".exe", ".dll", ".pdb",
+    ".so", ".dylib", ".a", ".lib", ".o", ".obj", ".class", ".jar", ".wasm",
+    ".pyc", ".pyo", ".pyd", ".nupkg", ".whl",
+    # data and databases
+    ".csv", ".tsv", ".parquet", ".db", ".sqlite", ".sqlite3", ".pkl", ".npy",
+    ".bin", ".dat", ".log", ".map",
+    # configuration, lockfiles and prose -- read by people and tools, not parsed
+    ".json", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf", ".properties",
+    ".xml", ".lock", ".md", ".rst", ".txt", ".pdf", ".docx", ".xlsx",
+    ".editorconfig", ".gitattributes", ".gitignore", ".gitkeep", ".env",
+    ".snap", ".patch", ".diff", ".license", ".sample",
+}
 
 def skill_root() -> Path:
     """The app-builder skill directory these scripts live in."""
@@ -114,13 +138,26 @@ def solution_dir() -> Path:
 
 
 def workspace(name: str) -> Path:
-    """Where an index and its decisions live: `<skill>/.data/<name>/`.
+    """Where an index lives: `<skill>/.data/<name>/`.
 
     Gitignored, and it has to be -- the skill around it is tracked, so a
     blanket `git add .` would otherwise commit structure derived from someone
-    else's repository along with the skill.
+    else's repository along with the skill. Everything in here is derived and
+    safe to delete, which is exactly why decisions are not kept here.
     """
     return skill_root() / ".data" / name
+
+
+def decisions_path(name: str) -> Path:
+    """Where the answers to disagreements live: `<skill>/decisions/<name>.md`.
+
+    Deliberately outside `.data/`. An index is derived from repositories and
+    rebuilds in seconds; an answer the user gave cannot be recovered from
+    anything, so it must not sit in the directory documented as safe to delete.
+    It holds decisions, not code read from anyone's repository, so unlike the
+    index it is meant to be committed.
+    """
+    return skill_root() / "decisions" / f"{name}.md"
 
 
 def index_path(name: str) -> Path:
@@ -154,8 +191,14 @@ def _is_excluded(relpath: str, excluded: tuple[str, ...]) -> bool:
 
 
 def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
-                      extensions: tuple[str, ...] = (".py",)):
-    """Walk a codebase for files any extractor can read. See iter_py_files."""
+                      extensions: tuple[str, ...] = (".py",), uncovered=None):
+    """Walk a codebase for files any extractor can read.
+
+    `exclude` behaves as it does in `iter_py_files`, which is the Python-only
+    walk `smoke.py` still uses. Note that `extensions` decides what is *seen*:
+    a file no extractor claims is not yielded here, so counting what a codebase
+    holds but this skill cannot read is `index.py`'s job, not this one's.
+    """
     lowered = tuple(e.lower() for e in extensions)
     excluded = tuple(e.strip("/").lower() for e in exclude if e.strip("/"))
     for dirpath, dirnames, filenames in os.walk(root):
@@ -167,6 +210,12 @@ def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
         ]
         for fn in filenames:
             if not fn.lower().endswith(lowered):
+                # Not ours. Count it anyway if the caller is keeping a tally:
+                # what this skill cannot read has to be reportable.
+                if uncovered is not None:
+                    ext = Path(fn).suffix.lower()
+                    if ext and ext not in NOT_A_LANGUAGE:
+                        uncovered[ext] = uncovered.get(ext, 0) + 1
                 continue
             p = here / fn
             try:
