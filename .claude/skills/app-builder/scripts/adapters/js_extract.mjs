@@ -103,26 +103,36 @@ function walk(node, visit) {
 }
 
 /** Method calls as `root.name`, and bare calls separately -- see ts_extract. */
+// Each entry is `[name, line]`: the call's own line, not the enclosing
+// function's, so a report points at the call site rather than at a long
+// method with an invitation to go looking.
+const has = (list, name, line) => list.some(([n, l]) => n === name && l === line);
+
 function collectCalls(node) {
   const calls = [], invokes = [];
   walk(node, (n) => {
     if (n.type !== 'CallExpression') return;
     const callee = n.callee;
+    const line = lineOf(n);
     if (callee?.type === 'MemberExpression' && !callee.computed) {
       const rootName = callRoot(callee.object);
       const prop = callee.property?.name;
       if (rootName && prop) {
         const entry = `${rootName}.${prop}`;
-        if (!calls.includes(entry)) calls.push(entry);
+        if (!has(calls, entry, line)) calls.push([entry, line]);
       }
     } else if (callee?.type === 'Identifier') {
-      if (!invokes.includes(callee.name)) invokes.push(callee.name);
+      if (!has(invokes, callee.name, line)) invokes.push([callee.name, line]);
     }
   });
   return { calls, invokes };
 }
 
-const lineOf = (src, index) => src.slice(0, index).split('\n').length;
+// acorn is asked for locations at parse time, so a line is read off the node
+// rather than recomputed by slicing the file -- which was O(n) per lookup and
+// would be O(n²) now that every call site wants one.
+const lineOf = (node) => node?.loc?.start?.line ?? 1;
+const endOf = (node) => node?.loc?.end?.line ?? lineOf(node);
 
 function methodRecord(node, name, src, comments) {
   const { calls, invokes } = collectCalls(node.body ?? node);
@@ -138,7 +148,8 @@ function methodRecord(node, name, src, comments) {
       p.name ?? p.argument?.name ?? p.left?.name
       ?? trunc(src.slice(p.start, p.end), 60)),
     returns: doc.returns,
-    line: lineOf(src, node.start),
+    line: lineOf(node),
+    end: endOf(node),
     async: Boolean(node.async),
     calls,
     invokes,
@@ -183,7 +194,7 @@ for (const entry of files) {
 
   const comments = [];
   const options = {
-    ecmaVersion: 'latest', locations: false, onComment: comments,
+    ecmaVersion: 'latest', locations: true, onComment: comments,
     allowHashBang: true, allowReturnOutsideFunction: true,
   };
 
@@ -292,7 +303,8 @@ for (const entry of files) {
       kind: 'class',
       bases: node.superClass ? [source.slice(node.superClass.start, node.superClass.end)] : [],
       keywords: [], decorators: [],
-      line: lineOf(source, node.start),
+      line: lineOf(node),
+      end: endOf(node),
       attrs, assigns, methods, nested,
       doc: null,
     };

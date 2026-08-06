@@ -96,26 +96,26 @@ def _named_blocks(text: str) -> tuple[list[dict], list[str]]:
         if ch == "}":
             depth -= 1
             while open_mixins and open_mixins[-1][1] > depth:
-                open_mixins.pop()
+                open_mixins.pop()[0]["end"] = line_no
             i += 1
             continue
         m = MIXIN.match(text, i)
         if m:
             method = {"name": m.group(2), "decorators": [], "params": [],
-                      "returns": None, "line": line_no, "async": False,
-                      "calls": [], "invokes": []}
+                      "returns": None, "line": line_no, "end": line_no,
+                      "async": False, "calls": [], "invokes": []}
             methods.append(method)
             open_mixins.append((method, depth))
             i = m.end()
             continue
         inc = INCLUDE.match(text, i)
         if inc:
-            target = inc.group(1)
+            entry = [inc.group(1), line_no]
             if open_mixins:
-                if target not in open_mixins[-1][0]["invokes"]:
-                    open_mixins[-1][0]["invokes"].append(target)
-            elif target not in body:
-                body.append(target)
+                if entry not in open_mixins[-1][0]["invokes"]:
+                    open_mixins[-1][0]["invokes"].append(entry)
+            elif entry not in body:
+                body.append(entry)
             i = inc.end()
             continue
         i += 1
@@ -133,6 +133,7 @@ def extract(files, root, repo, commits):
             continue
 
         text = _strip_comments(raw)
+        total_lines = raw.count("\n") + 1
         try:
             mtime = int(Path(path).stat().st_mtime)
         except OSError:
@@ -171,8 +172,8 @@ def extract(files, root, repo, commits):
             "k": "class", "lang": LANGUAGE, "repo": repo, "path": relpath,
             "mtime": mtime, "commit": commit, "name": name,
             "bases": sorted(set(EXTEND.findall(text))), "keywords": [],
-            "decorators": [], "line": 1, "attrs": attrs, "assigns": [],
-            "methods": methods, "nested": [],
+            "decorators": [], "line": 1, "end": total_lines,
+            "attrs": attrs, "assigns": [], "methods": methods, "nested": [],
         }
 
         if body_includes:
@@ -183,5 +184,6 @@ def extract(files, root, repo, commits):
                 "k": "func", "lang": LANGUAGE, "repo": repo, "path": relpath,
                 "mtime": mtime, "commit": commit, "name": name,
                 "decorators": [], "params": [], "returns": None, "line": 1,
-                "async": False, "calls": [], "invokes": body_includes,
+                "end": total_lines, "async": False,
+                "calls": [], "invokes": body_includes,
             }

@@ -29,15 +29,15 @@ REQUIRED = {
     "module": {"k", "lang", "repo", "path", "pkg", "dir", "loc", "mtime",
                "commit", "main", "exports", "imports"},
     "class": {"k", "lang", "repo", "path", "mtime", "commit", "name", "bases",
-              "keywords", "decorators", "line", "attrs", "assigns", "methods",
-              "nested"},
+              "keywords", "decorators", "line", "end", "attrs", "assigns",
+              "methods", "nested"},
     "func": {"k", "lang", "repo", "path", "mtime", "commit", "name",
-             "decorators", "params", "returns", "line", "async", "calls",
+             "decorators", "params", "returns", "line", "end", "async", "calls",
              "invokes"},
 }
 ATTR_KEYS = {"name", "ann", "call", "args", "kw"}
-METHOD_KEYS = {"name", "decorators", "params", "returns", "line", "async",
-               "calls", "invokes"}
+METHOD_KEYS = {"name", "decorators", "params", "returns", "line", "end",
+               "async", "calls", "invokes"}
 IMPORT_KEYS = {"mod", "name", "as"}
 
 FIXTURES = {
@@ -193,8 +193,24 @@ def check(language, extractor, root: Path) -> list[str]:
     if cls is not None:
         if not cls["bases"]:
             problems.append(f"{language}: class record lost its base")
-        calls = {c for m in cls["methods"] for c in m.get("calls", [])}
-        invokes = {i for m in cls["methods"] for i in m.get("invokes", [])}
+        # Every entry is `[name, line]`. Asserting the pair shape here is the
+        # point: six extractors have to agree on it, and a bare string from any
+        # one of them would make `calls` report the wrong line rather than fail.
+        pairs = [e for m in cls["methods"]
+                 for e in (*m.get("calls", []), *m.get("invokes", []))]
+        bad = [e for e in pairs
+               if not (isinstance(e, list) and len(e) == 2
+                       and isinstance(e[0], str) and isinstance(e[1], int))]
+        if bad:
+            problems.append(f"{language}: call entries are not [name, line] "
+                            f"pairs, e.g. {bad[0]!r}")
+        calls = {e[0] for m in cls["methods"] for e in m.get("calls", [])
+                 if isinstance(e, list)}
+        invokes = {e[0] for m in cls["methods"] for e in m.get("invokes", [])
+                   if isinstance(e, list)}
+        lines = {e[1] for e in pairs if isinstance(e, list) and len(e) == 2}
+        if lines and min(lines) < 1:
+            problems.append(f"{language}: a call reported line {min(lines)}")
         # `calls` is a receiver-and-method idea, and a markup language has no
         # such thing. A heuristic extractor is not held to a claim it does not
         # make -- but it is still held to recording what it *does* claim.

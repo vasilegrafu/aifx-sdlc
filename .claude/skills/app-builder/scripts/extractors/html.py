@@ -87,17 +87,17 @@ def _blocks(lines: list[str]) -> list[dict]:
     for i, line in enumerate(lines, start=1):
         for m in BLOCK.finditer(line):
             block = {"name": m.group(1), "decorators": [], "params": [],
-                     "returns": None, "line": i, "async": False,
+                     "returns": None, "line": i, "end": i, "async": False,
                      "calls": [], "invokes": []}
             out.append(block)
             stack.append(block)
         for m in INCLUDE.finditer(line):
-            target = m.group(1)
-            if stack and target not in stack[-1]["invokes"]:
-                stack[-1]["invokes"].append(target)
+            entry = [m.group(1), i]
+            if stack and entry not in stack[-1]["invokes"]:
+                stack[-1]["invokes"].append(entry)
         for _ in ENDBLOCK.finditer(line):
             if stack:
-                stack.pop()
+                stack.pop()["end"] = i
     return out
 
 
@@ -152,8 +152,8 @@ def extract(files, root, repo, commits):
             "k": "class", "lang": LANGUAGE, "repo": repo, "path": relpath,
             "mtime": mtime, "commit": commit, "name": name,
             "bases": list(parents), "keywords": [], "decorators": [],
-            "line": 1, "attrs": [], "assigns": [], "methods": blocks,
-            "nested": [],
+            "line": 1, "end": len(lines) or 1, "attrs": [], "assigns": [],
+            "methods": blocks, "nested": [],
             # Not part of the shared contract, and deliberately kept: absence of
             # evidence must not read as absence of an include.
             "unresolved_includes": sorted(set(unresolved)),

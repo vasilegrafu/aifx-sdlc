@@ -52,12 +52,23 @@ static string? CallRoot(ExpressionSyntax expr)
     }
 }
 
-static (List<string> calls, List<string> invokes) Calls(SyntaxNode body)
+// Each entry is `[name, line]`: the call's own line, not the enclosing
+// method's, which is the difference between being pointed at a call site and
+// being pointed at a long method and told to look.
+static JsonArray Pair(string name, int line) =>
+    new JsonArray(name, line);
+
+static bool HasPair(List<(string Name, int Line)> list, string name, int line) =>
+    list.Any(e => e.Name == name && e.Line == line);
+
+static (List<(string Name, int Line)> calls, List<(string Name, int Line)> invokes)
+    Calls(SyntaxNode body, SyntaxTree tree)
 {
-    var calls = new List<string>();
-    var invokes = new List<string>();
+    var calls = new List<(string Name, int Line)>();
+    var invokes = new List<(string Name, int Line)>();
     foreach (var inv in body.DescendantNodes().OfType<InvocationExpressionSyntax>())
     {
+        var line = tree.GetLineSpan(inv.Span).StartLinePosition.Line + 1;
         switch (inv.Expression)
         {
             case MemberAccessExpressionSyntax ma:
@@ -66,12 +77,13 @@ static (List<string> calls, List<string> invokes) Calls(SyntaxNode body)
                 if (r is not null)
                 {
                     var entry = $"{r}.{ma.Name.Identifier.Text}";
-                    if (!calls.Contains(entry)) calls.Add(entry);
+                    if (!HasPair(calls, entry, line)) calls.Add((entry, line));
                 }
                 break;
             }
             case IdentifierNameSyntax id:
-                if (!invokes.Contains(id.Identifier.Text)) invokes.Add(id.Identifier.Text);
+                if (!HasPair(invokes, id.Identifier.Text, line))
+                    invokes.Add((id.Identifier.Text, line));
                 break;
         }
     }
@@ -84,11 +96,15 @@ static List<string> Attributes(SyntaxList<AttributeListSyntax> lists) =>
 static List<string> Modifiers(SyntaxTokenList tokens) =>
     tokens.Select(t => t.Text).ToList();
 
-static JsonObject Method(BaseMethodDeclarationSyntax m, string name, FileLinePositionSpan span)
+static JsonObject Method(BaseMethodDeclarationSyntax m, string name,
+                         FileLinePositionSpan span, SyntaxTree tree)
 {
     SyntaxNode? body = (SyntaxNode?)m.Body ?? m.ExpressionBody;
+    // Both branches must name the tuple elements, or the inferred type of the
+    // conditional drops the names and `.Name`/`.Line` stop existing.
     var (calls, invokes) = body is null
-        ? (new List<string>(), new List<string>()) : Calls(body);
+        ? (new List<(string Name, int Line)>(), new List<(string Name, int Line)>())
+        : Calls(body, tree);
     var returns = m is MethodDeclarationSyntax md ? md.ReturnType.ToString() : null;
     return new JsonObject
     {
@@ -99,9 +115,10 @@ static JsonObject Method(BaseMethodDeclarationSyntax m, string name, FileLinePos
             .Select(p => (JsonNode)p.Identifier.Text!).ToArray()),
         ["returns"] = returns,
         ["line"] = span.StartLinePosition.Line + 1,
+        ["end"] = span.EndLinePosition.Line + 1,
         ["async"] = Modifiers(m.Modifiers).Contains("async"),
-        ["calls"] = new JsonArray(calls.Select(c => (JsonNode)c!).ToArray()),
-        ["invokes"] = new JsonArray(invokes.Select(c => (JsonNode)c!).ToArray()),
+        ["calls"] = new JsonArray(calls.Select(c => (JsonNode)Pair(c.Name, c.Line)).ToArray()),
+        ["invokes"] = new JsonArray(invokes.Select(c => (JsonNode)Pair(c.Name, c.Line)).ToArray()),
     };
 }
 
@@ -220,10 +237,10 @@ foreach (var entry in payload["files"]!.AsArray())
                     }
                     break;
                 case MethodDeclarationSyntax m:
-                    methods.Add(Method(m, m.Identifier.Text, tree.GetLineSpan(m.Span)));
+                    methods.Add(Method(m, m.Identifier.Text, tree.GetLineSpan(m.Span), tree));
                     break;
                 case ConstructorDeclarationSyntax c:
-                    methods.Add(Method(c, ".ctor", tree.GetLineSpan(c.Span)));
+                    methods.Add(Method(c, ".ctor", tree.GetLineSpan(c.Span), tree));
                     break;
                 case TypeDeclarationSyntax n:
                     nested.Add(n.Identifier.Text);
@@ -265,6 +282,7 @@ foreach (var entry in payload["files"]!.AsArray())
             ["decorators"] = new JsonArray(Attributes(type.AttributeLists)
                 .Select(a => (JsonNode)a!).ToArray()),
             ["line"] = span.StartLinePosition.Line + 1,
+            ["end"] = span.EndLinePosition.Line + 1,
             ["attrs"] = attrs, ["assigns"] = assigns,
             ["methods"] = methods, ["nested"] = nested,
             ["doc"] = null,

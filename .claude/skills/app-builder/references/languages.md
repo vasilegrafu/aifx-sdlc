@@ -48,6 +48,24 @@ their nearest compiler; a monorepo has several.
 do this" is a weaker statement than an AST one making the same claim, and `shape`
 can only be read correctly if the reader knows which they are looking at.
 
+**A call is `[name, line]`, and the line is the call's own.** Not the enclosing
+function's — the difference between being pointed at a call site and being
+pointed at a forty-line method and invited to go looking. `selftest.py` asserts
+the pair shape on every extractor, because a bare string from any one of them
+would make `calls` report a plausible wrong line rather than fail. Readers use
+`call_sites()` in `query.py`, which still accepts the older string-only form so
+an index built before the change keeps answering everything except *where*.
+
+**Class, function and method records carry `end` as well as `line`**, so the
+size of a definition is a question the index can answer — which is what stops
+`exemplars` recommending an empty class merely because it is typical.
+
+Both fields together cost about **9%** of index size, measured. That is the
+budget they have to earn, and the reason the answer to "should the index store
+more" is usually no: every query scans the whole file, so a field nobody reads
+is paid for by every query forever. There is a live example of that mistake —
+`doc` is written by the Python extractor and read by nothing.
+
 ## The mapping
 
 |  | Python | TypeScript | JavaScript | C# |
@@ -62,6 +80,7 @@ can only be read correctly if the reader knows which they are looking at.
 | `exports` | `__all__` or public names | export, export default | export **and `module.exports`** | none — namespaces |
 | `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` |
 | `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` |
+| call line from | `node.lineno` | `getLineAndCharacterOfPosition` | acorn `locations` | `GetLineSpan` |
 | barrel file | `__init__.py` | `index.ts` | `index.js` | none |
 | rung 1 | `smoke.py` | `tsc --noEmit` | `node --check` | `dotnet build` |
 | rung 2 | `python -m <entry>` | `npm run build` | `npm run build` | `dotnet run` |

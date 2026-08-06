@@ -64,8 +64,12 @@ def _call_root(node) -> str | None:
             return None
 
 
-def _calls(fn) -> tuple[list[str], list[str]]:
+def _calls(fn) -> tuple[list, list]:
     """`(calls, invokes)`: method calls as `root.attr`, and bare function calls.
+
+    Each entry is `[name, line]`. The line is the call's own, not the enclosing
+    function's, which is the difference between being pointed at a call site and
+    being pointed at a forty-line method and told to look.
 
     What a layer *calls* is not visible anywhere else in the index, and it is
     where a method that does not exist hides: the definition is perfect, the
@@ -83,12 +87,13 @@ def _calls(fn) -> tuple[list[str], list[str]]:
         if isinstance(node.func, ast.Attribute):
             root = _call_root(node.func.value)
             if root:
-                entry = f"{root}.{node.func.attr}"
+                entry = [f"{root}.{node.func.attr}", node.func.value.lineno]
                 if entry not in calls:
                     calls.append(entry)
         elif isinstance(node.func, ast.Name):
-            if node.func.id not in invokes:
-                invokes.append(node.func.id)
+            entry = [node.func.id, node.func.lineno]
+            if entry not in invokes:
+                invokes.append(entry)
     return calls, invokes
 
 
@@ -100,6 +105,7 @@ def _method(fn) -> dict:
         "params": _params(fn),
         "returns": _name(fn.returns) if fn.returns else None,
         "line": fn.lineno,
+        "end": getattr(fn, "end_lineno", None) or fn.lineno,
         "async": isinstance(fn, ast.AsyncFunctionDef),
         "calls": calls,
         "invokes": invokes,
@@ -148,6 +154,7 @@ def _class(node: ast.ClassDef, mod: dict) -> dict:
         "keywords": [f"{k.arg}={_name(k.value)}" for k in node.keywords if k.arg],
         "decorators": [_name(d) for d in node.decorator_list],
         "line": node.lineno,
+        "end": getattr(node, "end_lineno", None) or node.lineno,
         "attrs": attrs,
         "assigns": assigns,
         "methods": methods,

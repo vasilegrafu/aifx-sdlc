@@ -48,8 +48,16 @@ function callRoot(node) {
  * In React the bare ones carry most of the convention -- a component is defined
  * far more by which hooks it calls than by anything it declares.
  */
+// Each entry is `[name, line]`. The line is the call's own, not the enclosing
+// function's -- the difference between being pointed at a call site and being
+// pointed at a forty-line method and told to look.
+const has = (list, name, line) =>
+  list.some(([n, l]) => n === name && l === line);
+
 function collectCalls(node, src) {
   const calls = [], invokes = [];
+  const lineOf = (n) =>
+    src.getLineAndCharacterOfPosition(n.getStart(src)).line + 1;
   const walk = (n) => {
     if (ts.isCallExpression(n)) {
       const target = n.expression;
@@ -57,10 +65,12 @@ function collectCalls(node, src) {
         const rootName = callRoot(target.expression);
         if (rootName) {
           const entry = `${rootName}.${target.name.text}`;
-          if (!calls.includes(entry)) calls.push(entry);
+          const line = lineOf(n);
+          if (!has(calls, entry, line)) calls.push([entry, line]);
         }
       } else if (ts.isIdentifier(target)) {
-        if (!invokes.includes(target.text)) invokes.push(target.text);
+        const line = lineOf(n);
+        if (!has(invokes, target.text, line)) invokes.push([target.text, line]);
       }
     }
     ts.forEachChild(n, walk);
@@ -74,6 +84,9 @@ const modifierNames = (node) =>
     .filter((m) => !ts.isDecorator(m))
     .map((m) => ts.tokenToString(m.kind))
     .filter(Boolean);
+
+const endLine = (node, src) =>
+  src.getLineAndCharacterOfPosition(node.getEnd()).line + 1;
 
 const decoratorNames = (node, src) =>
   (ts.canHaveDecorators(node) ? ts.getDecorators(node) ?? [] : [])
@@ -91,6 +104,7 @@ function methodRecord(node, src, name) {
     params: params(node),
     returns: node.type ? text(node.type, src) : null,
     line: src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1,
+    end: endLine(node, src),
     async: modifierNames(node).includes('async'),
     calls,
     invokes,
@@ -156,6 +170,7 @@ function classRecord(node, src, mod, lang) {
     keywords: modifierNames(node),
     decorators: decoratorNames(node, src),
     line: src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1,
+    end: endLine(node, src),
     attrs, assigns, methods, nested,
     doc: null,
   };

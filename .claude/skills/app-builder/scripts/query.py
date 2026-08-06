@@ -43,6 +43,27 @@ def head(expr: str) -> str:
     return expr.split("(", 1)[0].strip()
 
 
+def call_sites(entries) -> list[tuple[str, int | None]]:
+    """`(name, line)` for each recorded call, whatever shape it was stored in.
+
+    Calls used to be bare strings and are now `[name, line]`. Both are accepted
+    on purpose: an index built before the change still answers every question
+    except *where*, and the alternative is making a rebuild mandatory to read
+    anything at all.
+    """
+    out = []
+    for entry in entries or ():
+        if isinstance(entry, str):
+            out.append((entry, None))
+        elif entry:
+            out.append((entry[0], entry[1] if len(entry) > 1 else None))
+    return out
+
+
+def call_names(entries) -> list[str]:
+    return [name for name, _ in call_sites(entries)]
+
+
 def add_filters(ap):
     ap.add_argument("--name", default="default", help="index name")
     ap.add_argument("--path", help="glob on the file path, e.g. 'database/*/models/*'")
@@ -195,8 +216,8 @@ def features(rec) -> set[str]:
             f.add(f"returns:{head(rec['returns'])}")
         if rec.get("async"):
             f.add("modifier:async")
-        f |= {f"invoke:{i}" for i in rec.get("invokes", ())}
-        f |= {f"call:{c}" for c in rec.get("calls", ())}
+        f |= {f"invoke:{i}" for i in call_names(rec.get("invokes"))}
+        f |= {f"call:{c}" for c in call_names(rec.get("calls"))}
         return f
 
     f = {f"base:{head(b)}" for b in rec["bases"]}
@@ -207,8 +228,8 @@ def features(rec) -> set[str]:
     f |= {f"method:{m['name']}" for m in rec["methods"]}
     for m in rec["methods"]:
         f |= {f"methoddec:{head(d)}" for d in m["decorators"]}
-        f |= {f"invoke:{i}" for i in m.get("invokes", ())}
-        f |= {f"call:{c}" for c in m.get("calls", ())}
+        f |= {f"invoke:{i}" for i in call_names(m.get("invokes"))}
+        f |= {f"call:{c}" for c in call_names(m.get("calls"))}
     return f
 
 
@@ -891,19 +912,25 @@ def cmd_calls(args):
                 defined |= {a["name"] for a in rec["attrs"]}
                 defined |= {a["name"] for a in rec["assigns"]}
             for m in rec["methods"]:
-                for call in m.get("calls", ()):
+                for call, line in call_sites(m.get("calls")):
                     root, _, attr = call.partition(".")
                     if root == on and matches(rec, args):
-                        called[attr].append(f"{rec['repo']}/{rec['path']}:{m['line']}")
-                if on in m.get("invokes", ()) and matches(rec, args):
-                    direct.append(f"{rec['repo']}/{rec['path']}:{m['line']}")
+                        called[attr].append(
+                            f"{rec['repo']}/{rec['path']}:{line or m['line']}")
+                for name, line in call_sites(m.get("invokes")):
+                    if name == on and matches(rec, args):
+                        direct.append(
+                            f"{rec['repo']}/{rec['path']}:{line or m['line']}")
         elif rec["k"] == "func":
-            for call in rec.get("calls", ()):
+            for call, line in call_sites(rec.get("calls")):
                 root, _, attr = call.partition(".")
                 if root == on and matches(rec, args):
-                    called[attr].append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
-            if on in rec.get("invokes", ()) and matches(rec, args):
-                direct.append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
+                    called[attr].append(
+                        f"{rec['repo']}/{rec['path']}:{line or rec['line']}")
+            for name, line in call_sites(rec.get("invokes")):
+                if name == on and matches(rec, args):
+                    direct.append(
+                        f"{rec['repo']}/{rec['path']}:{line or rec['line']}")
 
     if not called:
         if found_class is not None:
