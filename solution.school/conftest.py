@@ -1,7 +1,4 @@
-import os
 import pytest
-
-os.environ.setdefault('ENVIRONMENT', 'dev')
 
 from config import Configuration, ConfigurationLoader
 
@@ -11,6 +8,12 @@ if(not Configuration.is_loaded()):
 from database.database_generator import generate
 
 """------------------------------------------------------------------------------------------------
+The tests follow environment.json like everything else -- there is no override
+here, by choice. Switching to prod and running the suite therefore drops and
+recreates the prod database. Reaching that state means deliberately editing
+environment.json, which then shows as modified in git -- that visibility is what
+keeps it from happening by accident.
+
 One database, so one generation per session, and it lives here rather than in
 each suite's conftest.
 

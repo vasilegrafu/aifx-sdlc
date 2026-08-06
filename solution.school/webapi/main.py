@@ -1,16 +1,17 @@
 import os
 import uvicorn
 from webapi.app import app
-from config import ConfigurationLoader
+from config import Environment
 
 if __name__ == '__main__':
     # Server configuration
     host = os.getenv('API_HOST', 'localhost')
     port = int(os.getenv('API_PORT', '64266'))
 
-    environment = os.getenv('ENVIRONMENT', None)
-    if environment is None:
-        raise Exception("ENVIRONMENT variable is not set. Please set it to 'dev' or 'prod'.")
+    # environment.json decides, and this only reads it. Passing an environment
+    # in here would make the server a config-mutating tool, and let a deployment
+    # overwrite the value its image was built with.
+    environment = Environment.get()
 
     # Development mode settings
     is_development = environment.lower() in ('dev')

@@ -6,8 +6,13 @@
         "**/.pytest_cache": true
     },
 
+    // ENVIRONMENT is gone from here on purpose: solution.school/environment.json is
+    // the single source of truth, and nothing reads the variable any more.
+    // Change it by editing that file.
+    //
+    // PYTHONPATH stays -- it solves a different problem, putting the
+    // application root on sys.path so a file can be run by path at all.
     "terminal.integrated.env.windows": {
-        "ENVIRONMENT": "dev",
         "PYTHONPATH": "${env:PYTHONPATH};${workspaceFolder}/solution.school"
     },
 

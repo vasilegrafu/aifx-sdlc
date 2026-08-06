@@ -9,49 +9,27 @@
       "cwd": "${workspaceFolder}/solution.school",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "env": { "ENVIRONMENT": "dev", "PYTHONPATH": "${workspaceFolder}/solution.school" }
+      "env": { "PYTHONPATH": "${workspaceFolder}/solution.school" }
     },
 
     {
-      "name": "debug solution.school/webapi (dev)",
+      "name": "debug solution.school/webapi",
       "type": "debugpy",
       "request": "launch",
       "module": "webapi.main",
       "cwd": "${workspaceFolder}/solution.school",
       "console": "integratedTerminal",
       "justMyCode": true,
-      "args": [],
-      "env": { "ENVIRONMENT": "dev" }
+      "args": []
     },
 
     {
-      "name": "debug solution.school/webapp (dev)",
+      "name": "debug solution.school/webapp",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}/solution.school/webapp",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start:dev"]
-    },
-
-    {
-      "name": "debug solution.school/webapi (prod)",
-      "type": "debugpy",
-      "request": "launch",
-      "module": "webapi.main",
-      "cwd": "${workspaceFolder}/solution.school",
-      "console": "integratedTerminal",
-      "justMyCode": true,
-      "args": [],
-      "env": { "ENVIRONMENT": "prod" }
-    },
-
-    {
-      "name": "debug solution.school/webapp (prod)",
-      "type": "node",
-      "request": "launch",
-      "cwd": "${workspaceFolder}/solution.school/webapp",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start:prod"]
+      "runtimeArgs": ["run", "start"]
     },
 
     {
@@ -61,25 +39,15 @@
       "url": "http://localhost:5173",
       "webRoot": "${workspaceFolder}/solution.school/webapp",
       "sourceMaps": true
-    },
+    }
   ],
 
   "compounds": [
     {
-      "name": "debug solution.school/[webapi+webapp+chrome] (dev)",
+      "name": "debug solution.school/[webapi+webapp+chrome]",
       "configurations": [
-        "debug solution.school/webapi (dev)",
-        "debug solution.school/webapp (dev)",
-        "debug solution.school/chrome"
-      ],
-      "stopAll": true
-    },
-
-    {
-      "name": "debug solution.school/[webapi+webapp+chrome] (prod)",
-      "configurations": [
-        "debug solution.school/webapi (prod)",
-        "debug solution.school/webapp (prod)",
+        "debug solution.school/webapi",
+        "debug solution.school/webapp",
         "debug solution.school/chrome"
       ],
       "stopAll": true
