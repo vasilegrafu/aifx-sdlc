@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from database_tests.fixtures import a_student, a_subject, a_grade, an_enrolment
+from testing.builders import a_student, a_subject, a_grade, an_enrolment
 from database.models import Student, Enrolment
 from database.controllers import (StudentDbCtrl, EnrolmentDbCtrl, GradeDbCtrl,
                                   FormClassDbCtrl)

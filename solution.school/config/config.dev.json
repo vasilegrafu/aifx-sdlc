@@ -1,6 +1,6 @@
 {
     "environment": "dev",
     "database": {
-        "url": "sqlite:///database_storage/school.sqlite3"
+        "url": "sqlite:///database_storage/school.dev.sqlite3"
     }
 }

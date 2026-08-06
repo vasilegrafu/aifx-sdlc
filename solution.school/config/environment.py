@@ -25,6 +25,22 @@ what keeps a deployment safe: an image built for `prod` is never rewritten by
 the thing it is running.
 """
 class Environment:
+    # Set only by the test session, and never written to environment.json.
+    # This is a deliberate exception to "the file decides", scoped to one
+    # process: without it the suite drops and recreates whichever database the
+    # file happens to name, which on a day you had switched to prod means the
+    # prod database. The file stays untouched and still reads `dev`.
+    _process_override: str | None = None
+
+    @staticmethod
+    def use_for_this_process(environment: str) -> str:
+        available = Environment.available()
+        if environment not in available:
+            raise Exception(f'no config.{environment}.json exists. '
+                            f'Available: {available}')
+        Environment._process_override = environment
+        return environment
+
     @staticmethod
     def available() -> list[str]:
         """The environments that actually have a configuration file.
@@ -38,6 +54,8 @@ class Environment:
     @staticmethod
     def get() -> str:
         available = Environment.available()
+        if Environment._process_override is not None:
+            return Environment._process_override
         if not ENVIRONMENT_FILE.is_file():
             raise Exception(
                 f'{ENVIRONMENT_FILE} not found. It is tracked in git, so this '

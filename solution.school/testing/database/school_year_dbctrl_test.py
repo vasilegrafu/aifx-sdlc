@@ -1,4 +1,4 @@
-from database_tests.fixtures import a_school_year
+from testing.builders import a_school_year
 from database.controllers import SchoolYearDbCtrl
 
 

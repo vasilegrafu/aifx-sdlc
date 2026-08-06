@@ -1,4 +1,4 @@
-from database_tests.fixtures import a_form_class
+from testing.builders import a_form_class
 from database.controllers import FormClassDbCtrl
 
 

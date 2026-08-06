@@ -1,5 +1,6 @@
-from datetime import date
 import uuid
+
+from testing.builders import a_form_class
 
 """------------------------------------------------------------------------------------------------
 Every endpoint answers 200 even when it fails: the layer never raises, it
@@ -29,20 +30,8 @@ def test_get_new_returns_a_blank_student_with_an_id():
 
 
 # ----------------------------------------------------------------
-def _a_form_class(client):
-    from database.controllers import SchoolYearDbCtrl, TeacherDbCtrl, FormClassDbCtrl
-    from database.models import SchoolYear, Teacher, FormClass
-    year = SchoolYear(code='2026-2027', starts_on=date(2026, 9, 1), ends_on=date(2027, 7, 20))
-    SchoolYearDbCtrl.save(None, year)
-    tutor = Teacher(staff_number='T-001', first_name='Ada', last_name='Byron')
-    TeacherDbCtrl.save(None, tutor)
-    form = FormClass(school_year_id=year.id, form_tutor_id=tutor.id, name='9B', year_group=9)
-    FormClassDbCtrl.save(None, form)
-    return form
-
-
 def test_save_then_get_page_finds_it(client):
-    form = _a_form_class(client)
+    form = a_form_class()
     new = client.post('/students/get-new', json={}).json()['data']
     new.update(form_class_id=str(form.id), admission_number='ADM-0001',
                first_name='Alan', last_name='Turing',
@@ -58,7 +47,7 @@ def test_save_then_get_page_finds_it(client):
 
 
 def test_get_by_id_round_trips(client):
-    form = _a_form_class(client)
+    form = a_form_class()
     new = client.post('/students/get-new', json={}).json()['data']
     new.update(form_class_id=str(form.id), admission_number='ADM-0002',
                first_name='Grace', last_name='Hopper',
@@ -79,7 +68,7 @@ def test_get_by_id_reports_a_missing_student_as_an_error_not_a_crash(client):
 
 
 def test_delete_by_id_removes_it(client):
-    form = _a_form_class(client)
+    form = a_form_class()
     new = client.post('/students/get-new', json={}).json()['data']
     new.update(form_class_id=str(form.id), admission_number='ADM-0003',
                first_name='Edsger', last_name='Dijkstra',

@@ -1,4 +1,4 @@
-from database_tests.fixtures import a_grade
+from testing.builders import a_grade
 from database.controllers import GradeDbCtrl
 
 

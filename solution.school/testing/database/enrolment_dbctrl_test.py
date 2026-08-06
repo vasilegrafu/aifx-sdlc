@@ -1,4 +1,4 @@
-from database_tests.fixtures import an_enrolment
+from testing.builders import an_enrolment
 from database.controllers import EnrolmentDbCtrl
 
 

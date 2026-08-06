@@ -1,4 +1,4 @@
-from database_tests.fixtures import a_subject
+from testing.builders import a_subject
 from database.controllers import SubjectDbCtrl
 
 

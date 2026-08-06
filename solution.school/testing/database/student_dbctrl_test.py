@@ -1,4 +1,4 @@
-from database_tests.fixtures import a_student
+from testing.builders import a_student
 from database.controllers import StudentDbCtrl
 
 

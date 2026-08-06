@@ -32,7 +32,14 @@ def generate():
     url = resolve(Configuration.get('database:url'))
     drop_and_create_database(url)
     engine = create_engine(url)
-    BaseDatabaseModel.metadata.create_all(engine)
+    try:
+        BaseDatabaseModel.metadata.create_all(engine)
+    finally:
+        # Dispose, or the pooled connection keeps the SQLite file open and the
+        # *next* `generate()` in this process dies on `path.unlink()` with a
+        # Windows PermissionError naming the file and nothing else. That is
+        # what made the database look locked whenever a server had run first.
+        engine.dispose()
 
 """------------------------------------------------------------------------------------------------
 """
