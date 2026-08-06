@@ -242,6 +242,25 @@ Template inheritance is a registration chain with no barrel file, so this walks
 *down* it — the pages that extend the base, then the pages that extend those.
 Every level renders differently if the base changes, and none of them errors.
 
+**Can I trust the dates?**
+
+Every date in the index is the last commit that touched the file, and that is
+what makes `AGEING` and the "last touched" column mean *when anyone last cared*.
+Two situations quietly replace it with something weaker, and `shape` now says so
+under its header rather than leaving you to notice:
+
+- **A codebase not in git**, or one indexed with `--no-git`. Dates fall back to
+  file modification times, which a copy, an unzip or a checkout resets wholesale.
+  `meta` reports `git_dated: 0`.
+- **A shallow clone** (`git clone --depth 1`). The dates are real commit dates,
+  but there is only one commit, so every file shares it and no file can ever
+  look older than another. `meta` lists the repository under `shallow`.
+
+Neither breaks anything — every command still works, and only the dates change
+meaning. But `AGEING` cannot fire in either case, and a date on a `VARIES` row
+stops being evidence. If you want real recency from a public repository, clone
+it without `--depth 1`.
+
 **Which conventions are dying?**
 
 Run `shape` over the layer and read the `AGEING` section. Anything listed
@@ -259,7 +278,7 @@ built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
 | Command | Answers |
 |---|---|
 | `config` | which codebases and destination are configured, and whether they exist |
-| `meta --name X` | what an index covers, when built, which languages, what was skipped |
+| `meta --name X` | what an index covers, when built, which languages, what was skipped, `git_dated` (how many files got a real commit date) and `shallow` (repositories with no history) |
 | `layers` | what parts exist — directories, class counts, dominant base |
 | `find` | the definitions matching a filter, or `--files` for paths alone |
 | `shape` | what is ALWAYS true, what VARIES, what is ageing, where repos disagree |
@@ -272,7 +291,12 @@ built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
 | `decide --id --answer` | record one |
 
 Shared filters ●: `--path GLOB`, `--not-path GLOB` (repeatable), `--base`,
-`--decorator`, `--symbol REGEX`, `--repo`, `--lang`, `--limit`.
+`--decorator`, `--symbol REGEX`, `--repo`, `--lang`.
+
+`--limit` is **not** one of them — it is per command, with a default suited to
+that command: `layers` 40, `find` 60, `shape` 25, `imports` 40, `calls` 6,
+`proof` 20. `exemplars` takes `-n` instead (default 3), and `conform` takes
+neither, because a contract is not a list you truncate.
 
 Command-specific: `find --files --functions`, `layers --depth`,
 `shape --usually N` (default 60), `imports --chain`,

@@ -667,6 +667,52 @@ def stamp(rec) -> int:
     return rec.get("commit") or rec.get("mtime") or 0
 
 
+def shallow_repos(name: str) -> frozenset:
+    """Repositories the index recorded as shallow clones.
+
+    Absent from an index built before this was recorded, in which case nothing
+    is claimed -- silence is the honest answer to a question that was never
+    asked.
+    """
+    path = workspace(name) / "meta.json"
+    try:
+        return frozenset(json.loads(path.read_text(encoding="utf-8"))
+                         .get("shallow") or ())
+    except (OSError, ValueError):
+        return frozenset()
+
+
+def date_provenance(recs, shallow=frozenset()) -> str | None:
+    """Why the dates in this set cannot be trusted, or None if they can.
+
+    Dates are the only thing separating a live convention from a fossil, and
+    they degrade silently: a codebase outside git, or a shallow clone, still
+    produces a confident date for every file. The fallback is mtime -- "when
+    this was last written to disk" -- which a copy, an unzip or a checkout
+    resets wholesale.
+
+    Shallowness is judged per *repository*, not per matched set. Nine models
+    generated in one commit share one date and are perfectly well dated; a
+    `--depth 1` clone shares one date across every file it contains, and only
+    that means the dates are not history.
+
+    Absent evidence must not read as absent convention, and a date is evidence.
+    """
+    if not recs:
+        return None
+    if not any(r.get("commit") for r in recs):
+        return ("file mtimes, not commits -- nothing here is in git, or it was"
+                "\n         indexed with --no-git. A copy or checkout resets "
+                "every one of them\n         to the same instant, so AGEING is "
+                "not meaningful.")
+    repos = {r["repo"] for r in recs}
+    if repos and repos <= shallow:
+        return ("a shallow clone -- git says so, and a `--depth 1` checkout has"
+                "\n         one commit, so every file carries its date. Real "
+                "dates, no history:\n         AGEING cannot fire.")
+    return None
+
+
 def cmd_shape(args):
     recs = collect(args, kinds=kinds_for(args))
     if not recs:
@@ -688,11 +734,14 @@ def cmd_shape(args):
     set_newest = max((stamp(r) for r in recs), default=0)
     set_oldest = min((stamp(r) for r in recs if stamp(r)), default=0)
     ageing = 365 * 24 * 3600
+    dates_are = date_provenance(recs, shallow_repos(args.name))
 
     print(f"{total} {noun}"
           + (f"  ({', '.join(f'{k} {v}' for k, v in per_repo.items())})"
              if len(per_repo) > 1 else f"  in {next(iter(per_repo))}")
           + f"   touched {when(set_oldest)} .. {when(set_newest)}")
+    if dates_are:
+        print(f"  dates: {dates_are}")
 
     # What the layer is built on. A frontend layer's real contract is often the
     # framework rather than anything it declares, and this is the line that says
@@ -771,6 +820,10 @@ def cmd_shape(args):
         print("\n== AGEING ==")
         print("   present, but in nothing touched for over a year. A pattern being"
               "\n   abandoned still wins on file count -- do not copy these blindly.\n")
+        if dates_are:
+            print("   UNRELIABLE HERE: these are modification times, not commits."
+                  "\n   A file untouched on disk is not a convention anyone"
+                  " abandoned.\n")
         for f, n in stale[: args.limit]:
             kind, item = f.split(":", 1)
             print(f"  {when(newest[f])}  {LABELS.get(kind, kind)}: {item}"

@@ -212,6 +212,24 @@ def merge_module(merged: dict, relpath: str, rec: dict) -> None:
     first["main"] = first.get("main") or rec.get("main")
 
 
+def git_is_shallow(root: Path) -> bool:
+    """Whether this working tree is a `--depth 1` clone.
+
+    Worth asking git rather than inferring. A shallow clone has one commit, so
+    every file carries the same date -- but so does a repository where one
+    commit created everything, which is an ordinary and correctly dated thing.
+    The two are indistinguishable from the dates themselves, and only one of
+    them means the history is missing.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(root), "rev-parse", "--is-shallow-repository"],
+            capture_output=True, text=True, timeout=30, errors="replace")
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0 and proc.stdout.strip() == "true"
+
+
 def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
     """`{relative path: epoch of the last commit that touched it}`.
 
@@ -344,6 +362,9 @@ def main() -> int:
     per_language: dict[str, int] = {}
     fidelity: dict[str, str] = {}
     skipped_languages: list[tuple] = []
+    # Repositories whose history is truncated. Their dates are real but
+    # uniform, and AGEING cannot mean anything against them.
+    shallow: list[str] = []
     # File types that are plainly source in *some* language and that no
     # extractor here claims. Reported, never silently dropped: `shape` cannot
     # distinguish "this codebase has no components" from "nothing read them".
@@ -358,6 +379,8 @@ def main() -> int:
             repos.append(repo)
             n_before = files
             commits = {} if args.no_git else git_last_commit(root)
+            if not args.no_git and git_is_shallow(root):
+                shallow.append(repo)
             if not args.no_git:
                 # A linked-in directory belongs to the solution but is tracked in
                 # its own repository, so the root's log says nothing about it.
@@ -461,6 +484,7 @@ def main() -> int:
         "unparsed": unparsed, "git_dated": dated, "duplicates_skipped": duplicates,
         "languages": {lang: {"files": n, "fidelity": fidelity.get(lang, "?")}
                       for lang, n in sorted(per_language.items())},
+        "shallow": shallow,
         "skipped": [{"repo": r, "language": l, "files": n, "reason": why}
                     for r, l, n, why in skipped_languages],
         "not_covered": dict(sorted(uncovered.items(), key=lambda kv: -kv[1])),
