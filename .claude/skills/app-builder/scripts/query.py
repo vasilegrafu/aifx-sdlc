@@ -1049,6 +1049,191 @@ def cmd_calls(args):
         print(f"\nevery method called on {on} exists.")
 
 
+# How much a decision of each kind costs to get wrong. Not how interesting it
+# is -- how expensive the reversal is. A wrong table name is a rename; a wrong
+# key strategy propagates into every foreign key, every fixture and every test,
+# and is discovered late.
+DECISION_WEIGHT = {
+    "base": 1.0, "attrdetail": 1.0, "assign": 0.8, "attrcall": 0.7,
+    "attr": 0.6, "classdec": 0.5, "methoddec": 0.5, "method": 0.4,
+    "call": 0.25, "invoke": 0.25, "param": 0.2, "returns": 0.2,
+    "modifier": 0.1, "funcdec": 0.4,
+}
+
+WHY = {
+    "base": "the base class decides what every member inherits",
+    "attrdetail": "the form of a universal attribute -- it propagates into "
+                  "everything that references it",
+    "assign": "a class-level declaration: structural, and read by the framework",
+    "attrcall": "how the attribute is constructed, not merely that it exists",
+    "attr": "whether this field exists at all",
+    "method": "whether members of this layer carry this method",
+}
+
+
+def slugify(text: str) -> str:
+    out = "".join(c.lower() if c.isalnum() else "-" for c in text)
+    return "-".join(p for p in out.split("-") if p)[:60]
+
+
+# Whether a member *has* a field or a method usually tracks the domain, not a
+# decision: a model carries `instrument_id` because that entity references an
+# instrument. `generating.md` states it -- the percentage there is describing
+# the domain, not a disagreement about style. So presence is scored differently
+# from form, or the ranking fills up with domain nouns and the feature dies of
+# bad questions.
+PRESENCE_KINDS = {"attr", "method", "call", "invoke", "param", "returns"}
+
+
+def split_score(n: int, total: int) -> float:
+    """How genuinely forked a *structural* feature is.
+
+    A base class or a constructor on half the members is a real fork the
+    request has to land on. One on 5% is a single odd file; one on 95% is a
+    default with an exception. Neither deserves a person's attention.
+    """
+    if not total:
+        return 0.0
+    return 1.0 - abs(pct(n, total) - 50) / 50
+
+
+def majority_score(n: int, total: int) -> float:
+    """How much a *presence* question is a convention rather than the domain.
+
+    `created_at` on eight models of nine is a convention with three exceptions,
+    and worth one question. `instrument_id` on one of three is what that entity
+    happens to be. So this peaks where most-but-not-all have it, and is zero
+    for a minority.
+    """
+    if not total:
+        return 0.0
+    p = pct(n, total)
+    if p < 50 or p >= 100:
+        return 0.0
+    return max(0.0, 1.0 - abs(p - 80) / 30)
+
+
+def cmd_questions(args):
+    """The decisions this layer would force, ranked by what they cost to get wrong.
+
+    `shape` reports everything that varies. Most of it does not deserve a
+    question: it is one odd file, or a default with a single exception. This
+    ranks the candidates so that a budget of three questions spends itself on
+    the three that matter, and everything below the line is decided and stated
+    rather than asked.
+
+    Read-only. It records nothing and asks nothing -- `decide` does that.
+    """
+    recs = collect(args, kinds=kinds_for(args))
+    if not recs:
+        return print("nothing matched -- widen --path, or try --kind func")
+    total = len(recs)
+    per_repo = Counter(r["repo"] for r in recs)
+    target = configured_solution()["name"]
+    settled = {d["id"]: d for d in read_decisions(args.name)}
+
+    counts, repo_counts, newest = Counter(), defaultdict(Counter), {}
+    for r in recs:
+        for f in features(r):
+            counts[f] += 1
+            repo_counts[f][r["repo"]] += 1
+            newest[f] = max(newest.get(f, 0), stamp(r))
+    set_newest = max((stamp(r) for r in recs), default=0)
+    ageing = 365 * 24 * 3600
+
+    candidates = []
+
+    # 1. A feature some members have and others do not.
+    for f, n in counts.items():
+        kind, item = f.split(":", 1)
+        weight = DECISION_WEIGHT.get(kind, 0.3)
+        shape_of = majority_score if kind in PRESENCE_KINDS else split_score
+        score = weight * shape_of(n, total)
+        note = f"{n} of {total} have it"
+        if set_newest and newest.get(f) and set_newest - newest[f] > ageing:
+            # The count says follow it; the clock says it was abandoned. That
+            # disagreement is always worth a person's attention.
+            score += 0.35
+            note += f", and nothing since {when(newest[f])}"
+        if score > 0:
+            candidates.append((score, f"{kind}-{slugify(item)}", kind,
+                               f"{LABELS.get(kind, kind)}: {item}", note))
+
+    # 2. An attribute everything has, in more than one form. This is the
+    #    primary-key question, and it never shows up as a VARIES row because
+    #    the *name* is universal -- only the form differs.
+    by_attr = defaultdict(list)
+    for r in recs:
+        for a in r.get("attrs", ()):
+            by_attr[a["name"]].append(a)
+    for name, uses in by_attr.items():
+        if pct(len(uses), total) < args.usually:
+            continue
+        forms = Counter(a["ann"] for a in uses if a["ann"])
+        if len(forms) < 2:
+            continue
+        (top, n_top), (second, n_second) = forms.most_common(2)
+        score = DECISION_WEIGHT["attrdetail"] * split_score(n_top, len(uses))
+        candidates.append((
+            score, f"attrdetail-{slugify(name)}", "attrdetail",
+            f"attribute detail: {name}",
+            f"{truncate(top, 32)} x{n_top} vs {truncate(second, 32)} x{n_second}"))
+
+    # 3. What one repository always does and another never does. Never averaged,
+    #    and settled already when the target is one of the sides.
+    for f, by_repo in repo_counts.items():
+        hi = [r for r, n in per_repo.items() if pct(by_repo.get(r, 0), n) >= 90]
+        lo = [r for r, n in per_repo.items() if pct(by_repo.get(r, 0), n) <= 10]
+        if not (hi and lo):
+            continue
+        kind, item = f.split(":", 1)
+        if target in hi or target in lo:
+            continue                      # the target has decided; it wins
+        candidates.append((
+            DECISION_WEIGHT.get(kind, 0.3) + 0.5, f"{kind}-{slugify(item)}",
+            kind, f"DISAGREEMENT -- {LABELS.get(kind, kind)}: {item}",
+            f"{', '.join(hi)} always; {', '.join(lo)} never"))
+
+    best: dict[str, tuple] = {}
+    for cand in candidates:
+        if cand[0] > best.get(cand[1], (0,))[0]:
+            best[cand[1]] = cand
+    ranked = sorted(best.values(), key=lambda c: -c[0])
+    asked = [c for c in ranked if c[1] not in settled][: args.limit]
+
+    print(f"{total} {'functions' if recs[0]['k'] == 'func' else 'classes'} "
+          f"-> {len(ranked)} candidate decisions, "
+          f"{len(settled)} already settled, showing {len(asked)}\n")
+    if len(ranked) > total * 2:
+        print(f"  NOTE: {len(ranked)} candidates for {total} members means this"
+              f" is not one layer.\n  These questions average several families"
+              f" together and will not be the\n  right ones. Narrow with --base,"
+              f" --decorator or a deeper --path first.\n")
+    if not asked:
+        if ranked:
+            return print(f"  nothing left to ask -- every candidate here is "
+                         f"already settled.\n  `decisions --name {args.name}` "
+                         f"shows the answers being applied.")
+        return print("  nothing worth asking about: everything that varies here"
+                     "\n  is one odd file, a default with one exception, or the"
+                     " domain itself.")
+
+    for score, ident, kind, title, note in asked:
+        print(f"  {score:.2f}  {ident}")
+        print(f"        {title}")
+        print(f"        {note}")
+        if WHY.get(kind):
+            print(f"        why it matters: {WHY[kind]}")
+        print(f"        answer with: decide --name {args.name} "
+              f"--id {ident} --answer \"...\"")
+        print()
+
+    below = len(ranked) - len(settled) - len(asked)
+    if below > 0:
+        print(f"  {below} more below the line. Those are not asked -- they are "
+              f"decided\n  and stated in the report.")
+
+
 def cmd_conform(args):
     """Does the generated layer still satisfy the contract that produced it?
 
@@ -1243,6 +1428,15 @@ def main() -> int:
     p.add_argument("--target-path", required=True, help="glob selecting the generated layer")
     p.add_argument("--target-repo", help="restrict the target side to one repository")
     p.set_defaults(fn=cmd_conform)
+
+    p = sub.add_parser("questions", help="the decisions this layer forces, ranked by cost")
+    add_filters(p)
+    add_kind_and_tech(p)
+    p.add_argument("--usually", type=int, default=60,
+                   help="percent above which an attribute counts as universal")
+    p.add_argument("--limit", type=int, default=3,
+                   help="the budget: how many questions are worth a person's time")
+    p.set_defaults(fn=cmd_questions)
 
     p = sub.add_parser("decisions", help="answers already given, so they are not asked twice")
     p.add_argument("--name", default="default")

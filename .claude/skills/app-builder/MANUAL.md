@@ -261,6 +261,30 @@ meaning. But `AGEING` cannot fire in either case, and a date on a `VARIES` row
 stops being evidence. If you want real recency from a public repository, clone
 it without `--depth 1`.
 
+**What should I actually be asked before generating?**
+
+```bash
+scripts/query.py questions --name X --path '<layer>' --limit 3
+```
+
+`shape` reports everything that varies. Most of it does not deserve a question,
+and `--limit` is a **budget**: spend it on the three decisions that cost most to
+get wrong, decide the rest yourself and say so. Ranking uses what the index
+already knows — how irreversible the kind of decision is, how genuinely forked
+the layer is, and whether the majority form is a fossil.
+
+Two things it deliberately does *not* ask about. **Presence of a field or method
+in a minority** is the domain, not a decision: a model has `instrument_id`
+because that entity references an instrument. And anything **already recorded**
+in `decisions/` — answer once, never asked again:
+
+```bash
+scripts/query.py decide --name X --id attrdetail-id --answer "Uuid surrogate key"
+```
+
+If it reports far more candidates than members, that set is several families at
+once and the questions will be the wrong ones. Narrow it first.
+
 **Which conventions are dying?**
 
 Run `shape` over the layer and read the `AGEING` section. Anything listed
@@ -287,6 +311,7 @@ built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
 | `calls --on NAME` | methods called on a name vs. the ones it defines |
 | `conform` | whether generated code still keeps the source's contract |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
+| `questions` | the decisions this layer forces, ranked by what they cost to get wrong |
 | `decisions` | answers already given, so they are not asked twice |
 | `decide --id --answer` | record one |
 
