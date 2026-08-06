@@ -12,6 +12,8 @@ codebase of any size can be understood without reading it.
     shape       what is ALWAYS true of a set of classes vs. what VARIES
     exemplars   the most typical file to copy, and the outlier that shows why
     imports     who imports a symbol -- the wiring that makes it take effect
+    decisions   answers already given, so a disagreement is asked once
+    decide      record one
     meta        what this index covers and when it was built
 
 `shape` is the one that matters. What is always true is contract: reproduce it.
@@ -26,10 +28,11 @@ import datetime
 import fnmatch
 import json
 import re
+import shutil
 from collections import Counter, defaultdict
 
 from _common import (configured_repositories, configured_solution,
-                     decisions_path, load_config, pct, read_index,
+                     decisions_path, find_files, load_config, pct, read_index,
                      skill_root, truncate, workspace)
 
 # ---------------------------------------------------------------- filtering
@@ -299,30 +302,37 @@ LANGUAGES = {
         # the file that re-exports a package, and so continues a registration chain
         "barrel": "__init__.py",
         "entry": "a module guarded by __main__",
+        "rung1": "smoke.py -- it imports, and something imports it",
+        "toolchain": (".venv/Scripts/python.exe", ".venv/bin/python",
+                      "venv/Scripts/python.exe", "venv/bin/python"),
     },
     "typescript": {
         "proof_files": ("package.json", "tsconfig.json", "vitest.config.ts",
                         "jest.config.js", "playwright.config.ts", "vite.config.ts"),
         "barrel": "index.ts",
         "entry": "a script in package.json",
+        "rung1": "tsc --noEmit",
+        "toolchain": ("node_modules/typescript/package.json",),
     },
     "javascript": {
         "proof_files": ("package.json", "jest.config.js", "vitest.config.js",
                         "playwright.config.js", "eslint.config.js"),
         "barrel": "index.js",
         "entry": "a script in package.json",
+        "rung1": "node --check <file>, or the project's lint script",
+        "toolchain": ("node_modules/acorn/package.json",),
     },
     "csharp": {
-        "proof_files": ("Directory.Build.props", "global.json", "nuget.config"),
+        "proof_files": ("Directory.Build.props", "global.json", "nuget.config",
+                        "*.sln", "*.csproj"),
         # C# has no re-export file: a namespace is visible without one, and the
         # analogue of an unimported class is a service never registered.
         "barrel": None,
         "entry": "a Main method or a host builder",
+        "rung1": "dotnet build",
+        "toolchain": ("global.json",),
     },
 }
-
-PROOF_FILES = tuple(dict.fromkeys(f for lang in LANGUAGES.values()
-                                  for f in lang["proof_files"]))
 
 
 def language_of(rec) -> str:
@@ -333,48 +343,141 @@ def barrel_for(rec) -> str | None:
     return LANGUAGES.get(language_of(rec), LANGUAGES["python"])["barrel"]
 
 
+# An entry point that generates a schema, migrates, or starts a server is worth
+# far more here than a module with a demo block at the bottom -- and a codebase
+# has many more of the second kind.
+ENTRY_RANK = ("generator", "generate", "migrat", "main", "program", "app",
+              "server", "host", "startup", "importer", "seed", "cli", "manage")
+
+
+def rank_entry(path: str) -> tuple[int, str]:
+    low = path.lower()
+    if "test" in low or "spec" in low:
+        return (2, path)
+    for i, word in enumerate(ENTRY_RANK):
+        if word in low:
+            return (0, f"{i:02d}{path}")
+    return (1, path)
+
+
+def find_toolchain(root, found: list[str], spec) -> str | None:
+    """Where the toolchain for one language actually lives.
+
+    Not at the repository root, in general. `node_modules/typescript` sits
+    beside the `package.json` that asked for it, four directories down; a venv
+    may sit *above* the codebase when one environment serves a whole checkout.
+    So look beside every configuration file found, then at the root, then
+    upward -- the same lesson as `find_files`, in the other direction too.
+    """
+    seen, bases = set(), []
+    for f in found:
+        d = (root / f).parent
+        while d != root and d not in seen and root in d.parents:
+            seen.add(d)
+            bases.append(d)
+            d = d.parent
+    bases.append(root)
+    bases += [p for p in list(root.parents)[:3]]
+    for base in bases:
+        for candidate in spec["toolchain"]:
+            here = base / candidate
+            if here.exists():
+                try:
+                    return rel_to(here, root)
+                except ValueError:
+                    return str(here)
+    return None
+
+
+def rel_to(path, root) -> str:
+    try:
+        return path.relative_to(root).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def npm_scripts(root, rel_path: str) -> list[str]:
+    try:
+        data = json.loads((root / rel_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    return list((data.get("scripts") or {}).keys())
+
+
 def cmd_proof(args):
     """What the codebase itself uses as proof -- step 8 needs this, and asking
-    the user for it is asking them something their repository already says."""
-    for repo in configured_repositories():
-        if args.repo and repo["name"] != args.repo:
-            continue
-        print(f"== {repo['name']} ==   {repo['path']}\n")
-        if not repo["exists"]:
-            print("  path does not exist on this machine\n")
-            continue
-        found = [f for f in PROOF_FILES if (repo["path"] / f).is_file()]
-        print("  CONFIG      " + (", ".join(found) if found else "none found"))
-        venv = next((v for v in (".venv", "venv", "env")
-                     if (repo["path"] / v / "Scripts" / "python.exe").is_file()
-                     or (repo["path"] / v / "bin" / "python").is_file()), None)
-        print(f"  INTERPRETER {repo['path'] / venv if venv else 'none in the tree'}")
+    the user for it is asking them something their repository already says.
 
-    test_dirs, entries, langs = Counter(), [], Counter()
+    Reported per language, because the answer is per language. A repository's
+    Python side can have a venv and a pytest.ini while its TypeScript side has
+    a package.json four directories down, and a single root-level answer
+    describes neither.
+    """
+    # Index first: it says which languages are actually present, so the
+    # filesystem is only asked about those.
+    per_repo_langs, test_dirs, entries = defaultdict(Counter), Counter(), defaultdict(list)
     for rec in read_index(args.name):
         if args.repo and rec["repo"] != args.repo:
             continue
         if rec["k"] != "module":
             continue
-        langs[language_of(rec)] += 1
+        lang = language_of(rec)
+        per_repo_langs[rec["repo"]][lang] += 1
         top = rec["path"].split("/")[0]
         if "test" in top.lower() or "spec" in top.lower():
             test_dirs[f"{rec['repo']}/{top}"] += 1
         if rec.get("main"):
-            entries.append(f"{rec['repo']}/{rec['path']}")
+            entries[rec["repo"]].append((lang, rec["path"]))
 
-    print("\n  LANGUAGES   " + ", ".join(f"{k} ({v} files)"
-                                         for k, v in langs.most_common()))
+    targets = configured_repositories() + [configured_solution()]
+    for repo in targets:
+        if args.repo and repo["name"] != args.repo:
+            continue
+        label = f"{repo['name']}{'   (the generated target)' if repo.get('is_target') else ''}"
+        print(f"== {label} ==   {repo['path']}\n")
+        if not repo["exists"]:
+            print("  path does not exist on this machine\n")
+            continue
+        langs = per_repo_langs.get(repo["name"])
+        if not langs:
+            print("  nothing from this repository is in the index\n")
+            continue
+
+        for lang, n_files in langs.most_common():
+            spec = LANGUAGES.get(lang)
+            if not spec:
+                continue
+            print(f"  {lang}  ({n_files} files)")
+            found = find_files(repo["path"], spec["proof_files"])
+            print("      CONFIG     " + (", ".join(found[: args.limit])
+                                         if found else "none found"))
+            tool = find_toolchain(repo["path"], found, spec)
+            if not tool and lang == "csharp" and shutil.which("dotnet"):
+                tool = "dotnet (on PATH)"
+            if not tool and lang in ("typescript", "javascript") and shutil.which("node"):
+                tool = "node (on PATH), but the project's own is not installed"
+            print("      TOOLCHAIN  " + (str(tool) if tool else "none in the tree"))
+            print(f"      RUNG 1     {spec['rung1']}")
+            if lang in ("typescript", "javascript"):
+                for pkg in [f for f in found if f.endswith("package.json")]:
+                    scripts = npm_scripts(repo["path"], pkg)
+                    if scripts:
+                        print(f"      SCRIPTS    {pkg}: "
+                              + ", ".join(scripts[:8]))
+            mine = [p for l, p in entries.get(repo["name"], ()) if l == lang]
+            if mine:
+                print("      ENTRY      " + f"{spec['entry']}")
+                for p in sorted(mine, key=rank_entry)[: args.limit]:
+                    print(f"                 {p}")
+                if len(mine) > args.limit:
+                    print(f"                 ... {len(mine) - args.limit} more")
+            elif lang in ("python", "csharp"):
+                print(f"      ENTRY      none found -- looked for {spec['entry']}")
+        print()
+
     print("  TESTS       " + (", ".join(f"{d} ({n} files)"
                                         for d, n in test_dirs.most_common())
                               if test_dirs else "no test directories in the index"))
-    print("  ENTRY POINTS")
-    for e in entries[: args.limit]:
-        print(f"      {e}")
-    if not entries:
-        print("      none -- no module guards on __main__")
-    elif len(entries) > args.limit:
-        print(f"      ... {len(entries) - args.limit} more")
 
 
 HEADER = ("# Decisions\n\n"

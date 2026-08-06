@@ -23,7 +23,6 @@ from pathlib import Path
 from _common import rel
 
 LANGUAGE = "javascript"
-LANGUAGES = ("javascript",)
 FIDELITY = "ast"
 EXTENSIONS = (".js", ".jsx", ".mjs", ".cjs")
 

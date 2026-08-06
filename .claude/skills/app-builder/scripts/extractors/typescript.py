@@ -20,7 +20,6 @@ from pathlib import Path
 from _common import rel
 
 LANGUAGE = "typescript"
-LANGUAGES = ("typescript",)
 FIDELITY = "ast"
 EXTENSIONS = (".ts", ".tsx", ".mts", ".cts")
 

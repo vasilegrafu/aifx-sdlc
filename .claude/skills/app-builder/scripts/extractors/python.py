@@ -19,7 +19,6 @@ from _common import rel, truncate
 # one's, and `shape` output can only be trusted if it says which it is. A second
 # language becomes a second module with these two constants and an `extract`.
 LANGUAGE = "python"
-LANGUAGES = ("python",)
 FIDELITY = "ast"
 EXTENSIONS = (".py", ".pyi")
 

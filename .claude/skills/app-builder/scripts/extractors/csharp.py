@@ -21,7 +21,6 @@ from pathlib import Path
 from _common import rel
 
 LANGUAGE = "csharp"
-LANGUAGES = ("csharp",)
 FIDELITY = "ast"
 EXTENSIONS = (".cs",)
 

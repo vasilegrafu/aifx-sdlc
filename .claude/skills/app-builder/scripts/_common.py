@@ -190,6 +190,31 @@ def _is_excluded(relpath: str, excluded: tuple[str, ...]) -> bool:
     return any(low == e or low.startswith(e + "/") for e in excluded)
 
 
+def find_files(root: Path, names: tuple[str, ...], max_depth: int = 4) -> list[str]:
+    """Named files at or below a root, as posix paths relative to it.
+
+    Root-only was the earlier bug, and it is the same one the TypeScript
+    extractor already learned: a Python solution installs its frontend *below*
+    the root, so `package.json` lives at `webapp/package.json` and a check at
+    the root alone concludes that a TypeScript project has no configuration at
+    all. A monorepo has several of each.
+    """
+    wanted = {n.lower() for n in names}
+    suffixes = tuple(n.lower() for n in names if n.startswith("*"))
+    out = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        here = Path(dirpath)
+        depth = len(here.relative_to(root).parts) if here != root else 0
+        if depth >= max_depth:
+            dirnames[:] = []
+        dirnames[:] = [d for d in dirnames if not _is_skipped_dir(d)]
+        for fn in filenames:
+            low = fn.lower()
+            if low in wanted or any(low.endswith(s[1:]) for s in suffixes):
+                out.append(rel(here / fn, root))
+    return sorted(out)
+
+
 def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
                       extensions: tuple[str, ...] = (".py",), uncovered=None):
     """Walk a codebase for files any extractor can read.

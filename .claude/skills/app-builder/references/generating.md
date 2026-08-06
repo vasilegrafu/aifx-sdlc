@@ -3,6 +3,21 @@
 Read this when the main procedure in `SKILL.md` meets something it does not
 settle on its own.
 
+Most worked examples below are Python, because that is where they were learned.
+Each has an analogue in the other three languages, and where the analogue is not
+obvious it is named. Two are worth knowing before you start:
+
+- **The unit of a layer is not always a class.** A React component, a hook, a
+  route handler and most modern JavaScript are functions, and `shape --kind
+  class` describes a directory of forty of them as empty. Read a layer with
+  `--kind func` when its members are functions, and remember that such a layer's
+  contract lives almost entirely in what it *calls*.
+- **The registration chain has a different name in each language.** In Python it
+  is `__init__.py`, in TypeScript and JavaScript `index.ts` / `index.js`, and in
+  C# it is not a file at all — an unreferenced class compiles, and the same
+  failure appears as a service never added to the container. `imports --chain`
+  follows the first two; for the third, query the composition root.
+
 ## Turning prose into a spec
 
 The request arrives as a sentence, not a schema. Most of what a schema would
@@ -139,6 +154,18 @@ Three separate things then break the first time something runs from elsewhere:
 Run the entry point from **two** working directories before reporting it works —
 the application root and the repository root. All three of the above pass every
 static check and fail only there.
+
+The other languages have the same disease under different names, and the cure is
+the same — run it from somewhere else before believing it:
+
+- **TypeScript and JavaScript** resolve `.` imports against the importing file
+  and bare specifiers against the nearest `node_modules`, so a package that
+  works inside `webapp/` fails from the repository root. A path alias in
+  `tsconfig.json` that the bundler honours and `node` does not is the same bug
+  with a configuration file in front of it.
+- **C#** resolves content and appsettings against the *working directory*, not
+  the assembly, so a service that reads configuration works under `dotnet run`
+  from the project directory and not from the solution directory.
 
 ## The decisions file
 
