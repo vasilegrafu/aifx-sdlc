@@ -60,7 +60,8 @@ on this machine is the failure worth catching first.
 | Language | Needs | Notes |
 |---|---|---|
 | Python, `.py` `.pyi` | nothing | the parser is in the standard library |
-| TypeScript / JavaScript | `node`, and the project's `node_modules/typescript` | present by definition in a TS project |
+| TypeScript, `.ts` `.tsx` `.mts` `.cts` | `node` + the project's `node_modules/typescript` | present by definition in a TS project |
+| JavaScript, `.js` `.jsx` `.mjs` `.cjs` | `node` + `node_modules/acorn` | ships inside eslint, vite, webpack, rollup |
 | C# | the .NET SDK | the adapter builds itself on first use, ~20s, then caches |
 
 A language whose toolchain is missing is **skipped and reported**, never silently
@@ -218,6 +219,17 @@ scripts/index.py --name X <path> <path>   # explicit roots, ignoring config
     --max-bytes N    skip files larger than this
 ```
 
+**Checking the tool itself**
+
+```bash
+scripts/selftest.py
+```
+
+Feeds one fixture to every extractor and asserts they emit the same records —
+same keys, same language stamp, the same calls recorded. Run it after touching
+an extractor. Four languages are deliberate near-copies of each other in places,
+and this is what keeps the copies honest.
+
 **Checking generated Python**
 
 ```bash
@@ -246,8 +258,9 @@ variable's type — real receivers look like `_userManager`, `_logger`, `builder
 Static calls (`calls --on Assert`) work. The output says `NOT RESOLVED` rather
 than `MISSING` there, and means it.
 
-**JavaScript has thin `ATTRIBUTE DETAIL`.** No annotations, no modal form to
-report. Everything else works.
+**JavaScript reads JSDoc for types.** `@type {T}` and `@returns {T}` fill in what
+annotations would; a codebase that documents nothing has a thin `ATTRIBUTE
+DETAIL`, and there is nothing to be done about that.
 
 **Reachability is a Python idea.** In Python a class nothing imports never
 registers. In C# it compiles perfectly, and the equivalent failure is a service
@@ -303,6 +316,7 @@ even when two solutions link to the same library through junctions. `meta` repor
     index.py               build an index
     query.py               ask it questions
     smoke.py               check generated Python
+    selftest.py            check that the extractors still agree
     extractors/            one per language
     adapters/              the toolchains they shell out to
   .data/                   indexes — gitignored, rebuildable, never edited by hand

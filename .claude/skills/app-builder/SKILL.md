@@ -1,6 +1,6 @@
 ---
 name: app-builder
-description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, React or TypeScript components, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, which conventions are dying, or where two codebases disagree. Reads Python and TypeScript/JavaScript codebases of any size through a structural index rather than by opening files.
+description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, React or TypeScript components, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, which conventions are dying, or where two codebases disagree. Reads Python, TypeScript, JavaScript and C# codebases of any size through a structural index rather than by opening files, so it also answers questions about ASP.NET, React or SQLAlchemy code without reading it.
 ---
 
 # Generating a layer from codebases you were pointed at
@@ -423,13 +423,15 @@ the nearest layer as a source of conventions instead.
 
 ## Boundaries
 
-- **Python and TypeScript/JavaScript.** Both are read by their own compiler's
-  parser, never by pattern matching, and every record says which language
-  produced it and at what fidelity. Reading TypeScript needs `node` and the
-  project's own `node_modules/typescript` — present by definition in a
-  TypeScript codebase. Nothing else is covered, and must not be guessed at:
-  a language with no extractor is reported as skipped, never as absent.
-  `references/languages.md` holds the mapping, the traps, and how to add one.
+- **Python, TypeScript, JavaScript and C#** — four languages, four extractors,
+  each on its own parser. All read by their own
+  compiler's parser, never by pattern matching, and every record says which
+  language produced it and at what fidelity. TypeScript needs `node` and the
+  project's own `node_modules/typescript`; C# needs the .NET SDK — each present
+  by definition in a codebase of that language. Nothing else is covered and must
+  not be guessed at: a language with no extractor, or with its toolchain
+  missing, is reported as **skipped**, never as absent. `references/languages.md`
+  holds the mapping, the traps, and how to add one.
 - The index holds facts derived from other people's repositories. It lives in
   `.data/` beside this file — inside a tracked skill, so it must stay ignored,
   and nothing from it belongs in a tracked file.

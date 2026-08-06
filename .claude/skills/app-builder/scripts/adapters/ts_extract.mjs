@@ -19,8 +19,8 @@ const files = input.files;
 const repo = input.repo;
 
 const rel = (p) => p.replace(/\\/g, '/').slice(root.replace(/\\/g, '/').length + 1);
-/** The compiler reads both; the record should say which it read. */
-const langOf = (p) => (/\.(m|c)?jsx?$/i.test(p) ? 'javascript' : 'typescript');
+/** This adapter is handed TypeScript only; JavaScript has its own. */
+const langOf = () => 'typescript';
 
 const trunc = (s, n = 160) => {
   s = String(s ?? '').replace(/\s+/g, ' ').trim();

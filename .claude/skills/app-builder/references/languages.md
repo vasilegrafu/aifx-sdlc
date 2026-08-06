@@ -4,15 +4,21 @@ The index schema is the seam. Everything downstream — `layers`, `find`, `shape
 `exemplars`, `imports`, `calls`, `conform` — reads records and never asks what
 produced them. A language is added by producing records, not by changing queries.
 
-**Python and TypeScript are implemented**, both at AST fidelity. C# is design
-only — the rest of this file is the map for it, and the traps to avoid first.
+**Python, TypeScript, JavaScript and C# are implemented**, all at AST fidelity,
+one extractor each. Every one was validated against a codebase nobody wrote for
+the test, and the sections below record what that found — which was, every time,
+something a fixture would have agreed with me about.
+
+`selftest.py` holds them to one contract: same fixture shapes, same record keys,
+same call recording. Where two extractors are deliberate near-copies, that is
+what keeps the copy honest rather than merely intended.
 
 ## The extractor contract
 
 ```python
 LANGUAGE   = "typescript"          # stamped on every record as `lang`
 FIDELITY   = "ast"                 # "ast" or "heuristic"
-EXTENSIONS = (".ts", ".tsx", ".js", ".jsx", ".mts", ".cts")
+EXTENSIONS = (".ts", ".tsx", ".mts", ".cts")
 
 def available(root) -> str | None: ...          # None, or the reason it cannot run
 def extract(files, root, repo, commits) -> Iterable[dict]: ...
@@ -43,21 +49,21 @@ can only be read correctly if the reader knows which they are looking at.
 
 ## The mapping
 
-|  | Python | TypeScript / JavaScript | C# |
-|---|---|---|---|
-| parser | stdlib `ast`, in-process | TS compiler API, via node | Roslyn, via dotnet |
-| `class` record | class | class, interface, type alias | class, struct, interface, record |
-| `bases` | base classes | `extends`, `implements` | base type + interfaces |
-| `decorators` | decorators | decorators | attributes |
-| `attrs` | annotated assignments | interface fields, class properties | fields and properties |
-| `methods` | def / async def | methods, arrow properties | methods |
-| `imports` | import, from-import | import, `import type` | using |
-| `exports` | `__all__` or public names | export, export default | none — namespaces |
-| `calls` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` |
-| `invokes` | `f(...)` | `f(...)` — **hooks live here** | `F(...)` |
-| barrel file | `__init__.py` | `index.ts` | none |
-| rung 1 | `import M` | `tsc --noEmit` | `dotnet build` |
-| rung 2 / 4 | pytest | vitest, `npm run build` | `dotnet test` |
+|  | Python | TypeScript | JavaScript | C# |
+|---|---|---|---|---|
+| parser | stdlib `ast`, in-process | TS compiler API, via node | acorn, via node | Roslyn, via dotnet |
+| `class` record | class | class, interface, type alias | class | class, struct, interface, record |
+| `bases` | base classes | `extends`, `implements` | `extends` | base type + interfaces |
+| `decorators` | decorators | decorators | — | attributes |
+| `attrs` | annotated assignments | interface fields, class properties | class fields, typed by JSDoc | fields and properties |
+| `methods` | def / async def | methods, arrow properties | methods | methods |
+| `imports` | import, from-import | import, `import type` | import **and `require`** | using |
+| `exports` | `__all__` or public names | export, export default | export **and `module.exports`** | none — namespaces |
+| `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` |
+| `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` |
+| barrel file | `__init__.py` | `index.ts` | `index.js` | none |
+| rung 1 | `import M` | `tsc --noEmit` | `node --check` | `dotnet build` |
+| rung 2 / 4 | pytest | vitest, `npm run build` | vitest, jest | `dotnet test` |
 
 ## What breaks, per language
 
@@ -130,18 +136,36 @@ first use and the assembly is cached. If you are reading a C# codebase the SDK
 is present by definition — the same argument that lets the TypeScript extractor
 use the project's own compiler.
 
-### JavaScript — implemented, by the same extractor
+### JavaScript — implemented, on its own parser
 
-One parser, two reported languages. The TypeScript compiler reads JavaScript at
-the same fidelity, so `.js` costs nothing extra — but a `.js` file is stamped
-`javascript`, not `typescript`. Reporting it as TypeScript would make `--lang
-javascript` return nothing while JavaScript sat in the index, which is a lie the
-reader has no way to catch.
+Its own extractor, on **acorn**, not the TypeScript compiler. The reason is not
+tidiness: a JavaScript project is not obliged to have TypeScript installed, and
+while the two shared an extractor such a codebase **could not be indexed at
+all** — the compiler lookup simply failed and every file came back unparsed.
+acorn is the parser inside eslint, vite, webpack and rollup, so it is present in
+essentially any real JavaScript project. `acorn-jsx` is loaded when found, and
+only `.jsx` needs it.
 
-Expect `ATTRIBUTE DETAIL` to be nearly empty: with no annotations there is no
-modal form to report. And expect most `.js` in a TypeScript project to be
-configuration — in a real one, the single `.js` file was `eslint.config.js`,
-with seven imports and no definitions at all.
+The two adapters are deliberate near-copies emitting identical records, and
+`selftest.py` is what keeps that true rather than aspirational. What is *not*
+shared is what genuinely differs:
+
+**CommonJS, which was previously invisible.** `require()` at any depth becomes an
+import; `module.exports = {...}` and `exports.x` become exports. Both are
+ordinary expressions rather than declarations, so an ESM-only walk misses them
+entirely — before this, a published package showed 0 exports; after, 358 of 359
+modules carry them.
+
+**JSDoc types**, which give JavaScript an `ATTRIBUTE DETAIL` worth reading.
+`@type {T}` fills `ann`, `@returns {T}` fills `returns`. A codebase that
+documents its types has told you them, and discarding that would leave the
+section empty for no reason.
+
+**Parsed as a module, then as a script.** The two differ only where it matters —
+`import` is a syntax error in a script — and CommonJS is legal in either.
+
+Expect most `.js` in a *TypeScript* project to be configuration: in a real one
+the single `.js` file was `eslint.config.js`, seven imports and no definitions.
 
 Two shapes that only appear once you index real JavaScript:
 

@@ -1,4 +1,4 @@
-"""TypeScript and JavaScript extraction, through the TypeScript compiler.
+"""TypeScript extraction, through the TypeScript compiler.
 
 Not a regex. The parser is the one the project already installed -- if you are
 reading a TypeScript codebase, TypeScript is present by definition -- and it is
@@ -11,6 +11,7 @@ two-second index into minutes, which is why `extract` takes a list.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import subprocess
@@ -18,22 +19,32 @@ from pathlib import Path
 
 from _common import rel
 
-LANGUAGE = "typescript"                       # the extractor's own name
-LANGUAGES = ("typescript", "javascript")      # what it may stamp on a record
+LANGUAGE = "typescript"
+LANGUAGES = ("typescript",)
 FIDELITY = "ast"
-EXTENSIONS = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+EXTENSIONS = (".ts", ".tsx", ".mts", ".cts")
 
-# One parser, two languages. The TypeScript compiler reads JavaScript, so a `.js`
-# file is extracted at the same fidelity -- but it is reported as JavaScript,
-# because `--lang javascript` returning nothing while JavaScript sits in the
-# index is a lie the reader has no way to catch. Expect ATTRIBUTE DETAIL to be
-# thin for it: with no annotations there is no modal form to report.
+# TypeScript only. JavaScript has its own extractor, on its own parser, because
+# a JavaScript project is not obliged to have TypeScript installed -- and because
+# CommonJS and JSDoc are its whole vocabulary and have no place here.
 
 ADAPTER = Path(__file__).resolve().parents[1] / "adapters" / "ts_extract.mjs"
 
 
+ENV_OVERRIDE = "APP_BUILDER_TYPESCRIPT"
+PARSER_RELATIVE_PATH = "node_modules/typescript/lib/typescript.js"
+
+
 def find_typescript(start: Path) -> Path | None:
-    """The nearest installed `typescript`, walking up from the source."""
+    """The nearest installed `typescript`, walking up from the source.
+
+    `APP_BUILDER_TYPESCRIPT` overrides the search, for the cases where walking up
+    cannot work: a checkout whose dependencies were never installed, a fixture in
+    a temporary directory, a build agent with one shared toolchain.
+    """
+    override = os.environ.get(ENV_OVERRIDE)
+    if override and Path(override).is_file():
+        return Path(override)
     for directory in [start, *start.parents]:
         candidate = directory / "node_modules" / "typescript" / "lib" / "typescript.js"
         if candidate.is_file():
