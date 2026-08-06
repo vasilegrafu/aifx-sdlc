@@ -322,6 +322,17 @@ LANGUAGES = {
         "rung1": "node --check <file>, or the project's lint script",
         "toolchain": ("node_modules/acorn/package.json",),
     },
+    "html": {
+        # A template layer proves itself through whatever renders it, so its
+        # proof files are the web framework's, not its own.
+        "proof_files": ("manage.py", "pyproject.toml", "package.json"),
+        # Template inheritance has no barrel file: a page names its parent
+        # directly, so the chain is `bases`, and `imports --chain` follows it.
+        "barrel": None,
+        "entry": "a view or route that renders it",
+        "rung1": "render it -- a template only fails when something renders it",
+        "toolchain": (),
+    },
     "csharp": {
         "proof_files": ("Directory.Build.props", "global.json", "nuget.config",
                         "*.sln", "*.csproj"),
@@ -823,9 +834,14 @@ def cmd_exemplars(args):
 
 def _imports_any(mod, names: set[str]) -> tuple[str, str] | None:
     for imp in mod["imports"]:
-        if imp.get("name") in names or imp["mod"].split(".")[-1] in names \
-                or imp.get("as") in names:
-            return imp["mod"], imp.get("name")
+        target = imp["mod"] or ""
+        # The whole specifier, then its last segment under either separator. A
+        # dotted split alone turns `admin/base.html` into `html` and matches
+        # every template in the project against nothing anyone asked for.
+        if (target in names or imp.get("name") in names or imp.get("as") in names
+                or target.split(".")[-1] in names
+                or target.rsplit("/", 1)[-1] in names):
+            return target, imp.get("name")
     return None
 
 
@@ -994,6 +1010,31 @@ def cmd_imports(args):
         print(f"\nSUBCLASSED BY ({len(subclasses)})\n")
         for repo, path, name in subclasses[: args.limit]:
             print(f"  {repo}/{path}  {name}")
+        if len(subclasses) > args.limit:
+            print(f"  ... {len(subclasses) - args.limit} more (--limit)")
+
+    # For a template layer this *is* the registration chain. A page names its
+    # parent directly -- there is no barrel file to re-export it -- so the hops
+    # that matter go downward through inheritance: change a base template and
+    # every level below it renders differently, and none of them errors.
+    if args.chain and subclasses:
+        classes = [r for r in read_index(args.name) if r["k"] == "class"]
+        frontier = {name for _, _, name in subclasses}
+        seen_names, level = set(frontier) | {sym}, 1
+        while frontier and level < args.depth:
+            nxt = {r["name"] for r in classes
+                   if any(head(b) in frontier for b in r["bases"])
+                   and r["name"] not in seen_names}
+            if not nxt:
+                break
+            print(f"\nWHICH IS EXTENDED BY ({len(nxt)})   -- level {level + 1}\n")
+            for n in sorted(nxt)[: args.limit]:
+                print(f"  {n}")
+            if len(nxt) > args.limit:
+                print(f"  ... {len(nxt) - args.limit} more (--limit)")
+            seen_names |= nxt
+            frontier = nxt
+            level += 1
 
 
 # ---------------------------------------------------------------- cli

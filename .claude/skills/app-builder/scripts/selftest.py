@@ -84,6 +84,21 @@ export class Widget extends Base {
 
 export function helper(n) { return String(n); }
 '''),
+    # Not code, and deliberately held to the same contract. A template layer's
+    # inheritance is a base class, its blocks are methods and its includes are
+    # calls -- if that mapping ever stops holding, every query over a template
+    # layer quietly describes something else.
+    "html": ("fixture.html", '''
+{% extends "base.html" %}
+{% load i18n %}
+
+{% block title %}Fixture{% endblock %}
+
+{% block content %}
+  {% include "widgets/helper.html" %}
+  {% blocktranslate %}not a block{% endblocktranslate %}
+{% endblock %}
+'''),
     "csharp": ("Fixture.cs", '''
 using System.Collections.Generic;
 
@@ -161,10 +176,26 @@ def check(language, extractor, root: Path) -> list[str]:
             problems.append(f"{language}: class record lost its base")
         calls = {c for m in cls["methods"] for c in m.get("calls", [])}
         invokes = {i for m in cls["methods"] for i in m.get("invokes", [])}
-        if not any(c.endswith((".draw", ".Draw")) for c in calls):
-            problems.append(f"{language}: method call not recorded, saw {sorted(calls)}")
-        if not any(i.lower() == "helper" for i in invokes):
+        # `calls` is a receiver-and-method idea, and a markup language has no
+        # such thing. A heuristic extractor is not held to a claim it does not
+        # make -- but it is still held to recording what it *does* claim.
+        if extractor.FIDELITY == "ast":
+            if not any(c.endswith((".draw", ".Draw")) for c in calls):
+                problems.append(f"{language}: method call not recorded, "
+                                f"saw {sorted(calls)}")
+        if not any("helper" in i.lower() for i in invokes):
             problems.append(f"{language}: bare call not recorded, saw {sorted(invokes)}")
+
+    if language == "html":
+        # The two traps real templates set, asserted rather than remembered.
+        names = {m["name"] for r in records if r.get("k") == "class"
+                 for m in r["methods"]}
+        if any("translat" in n for n in names):
+            problems.append(f"html: `blocktranslate` was read as a block "
+                            f"named {sorted(n for n in names if 'translat' in n)}")
+        if names != {"title", "content"}:
+            problems.append(f"html: blocks were {sorted(names)}, expected "
+                            f"title and content")
 
     return problems
 

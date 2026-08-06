@@ -4,8 +4,9 @@ The index schema is the seam. Everything downstream — `layers`, `find`, `shape
 `exemplars`, `imports`, `calls`, `conform` — reads records and never asks what
 produced them. A language is added by producing records, not by changing queries.
 
-**Python, TypeScript, JavaScript and C# are implemented**, all at AST fidelity,
-one extractor each. Every one was validated against a codebase nobody wrote for
+**Python, TypeScript, JavaScript and C# are implemented at AST fidelity**, one
+extractor each, plus **HTML templates at heuristic fidelity** and the container
+formats below. Every one was validated against a codebase nobody wrote for
 the test, and the sections below record what that found — which was, every time,
 something a fixture would have agreed with me about.
 
@@ -49,19 +50,19 @@ can only be read correctly if the reader knows which they are looking at.
 
 ## The mapping
 
-|  | Python | TypeScript | JavaScript | C# |
-|---|---|---|---|---|
-| parser | stdlib `ast`, in-process | TS compiler API, via node | acorn, via node | Roslyn, via dotnet |
-| `class` record | class | class, interface, type alias | class | class, struct, interface, record |
-| `bases` | base classes | `extends`, `implements` | `extends` | base type + interfaces |
-| `decorators` | decorators | decorators | — | attributes |
-| `attrs` | annotated assignments | interface fields, class properties | class fields, typed by JSDoc | fields and properties |
-| `methods` | def / async def | methods, arrow properties | methods | methods |
-| `imports` | import, from-import | import, `import type` | import **and `require`** | using |
-| `exports` | `__all__` or public names | export, export default | export **and `module.exports`** | none — namespaces |
-| `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` |
-| `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` |
-| barrel file | `__init__.py` | `index.ts` | `index.js` | none |
+|  | Python | TypeScript | JavaScript | C# | HTML templates |
+|---|---|---|---|---|---|
+| parser | stdlib `ast`, in-process | TS compiler API, via node | acorn, via node | Roslyn, via dotnet | regex — **heuristic** |
+| `class` record | class | class, interface, type alias | class | class, struct, interface, record | the template itself |
+| `bases` | base classes | `extends`, `implements` | `extends` | base type + interfaces | `{% extends %}` |
+| `decorators` | decorators | decorators | — | attributes | — |
+| `attrs` | annotated assignments | interface fields, class properties | class fields, typed by JSDoc | fields and properties | — |
+| `methods` | def / async def | methods, arrow properties | methods | methods | `{% block %}` |
+| `imports` | import, from-import | import, `import type` | import **and `require`** | using | extends, include, load, `<script src>` |
+| `exports` | `__all__` or public names | export, export default | export **and `module.exports`** | none — namespaces | the blocks it offers |
+| `calls` | `obj.method(...)` | `obj.method(...)` | `obj.method(...)` | `obj.Method(...)` | — |
+| `invokes` | `f(...)` | `f(...)` — **hooks live here** | `f(...)` — hooks too | `F(...)` | `{% include %}` |
+| barrel file | `__init__.py` | `index.ts` | `index.js` | none | none — inheritance is the chain |
 | rung 1 | `smoke.py` | `tsc --noEmit` | `node --check` | `dotnet build` |
 | rung 2 | `python -m <entry>` | `npm run build` | `npm run build` | `dotnet run` |
 | rung 4 | pytest | vitest, jest | vitest, jest | `dotnet test` |
@@ -185,6 +186,54 @@ convention.
 reported `Error` as a dominant base class. Files whose longest line runs past a
 couple of thousand characters are build output, and are skipped and counted, not
 read.
+
+### HTML templates — a layer whose contract is inheritance
+
+Django and Jinja templates read through the existing schema with no new record
+kind and no new query, because the mapping is exact rather than convenient:
+`{% extends %}` is a base class, `{% block %}` is a method, `{% include %}` is
+a call. On Django's admin layer that yields, immediately:
+
+```
+28 classes
+== BASE CLASSES ==   ALWAYS  admin/base_site.html
+== METHODS ==        ALWAYS  content
+                      89%    breadcrumbs
+                      68%    title
+                     VARIES  extrastyle (29%), coltype (25%), bodyclass (25%)
+```
+
+Which is the contract of that layer, and recognisable to anyone who has written
+a Django admin page. Flask's Jinja templates read the same way — a different
+dialect of one family.
+
+**Template inheritance is a registration chain**, and it is the reason this is
+worth doing rather than decorative. There is no barrel file: a page names its
+parent directly, so `imports --chain` walks *down* through inheritance —
+`admin/base.html` → `admin/base_site.html` → 28 pages → 13 more. Change a base
+template or forget to fill the block a parent expects, and nothing errors. The
+page renders wrong, or empty. That is the same silent failure as a class
+nothing imports.
+
+**`FIDELITY` is `heuristic` here, and that is not a footnote.** There is no
+template parser in the standard library, so this is regex. A heuristic
+extractor claiming "100% of pages do this" is a weaker statement than an AST one
+making the same claim, and `shape` can only be read correctly by someone who
+knows which they have.
+
+Two traps, both from the 393 real templates rather than from imagination:
+
+- **`{% blocktranslate %}` is not a block.** It appears 25 times, and a
+  `block\s*` pattern invents a block named `translate` on pages that have none.
+  Requiring whitespace before the name excludes it exactly.
+- **`{% include widget.template_name %}` names a variable, not a file** — the
+  target is decided at render time. Recorded under `unresolved_includes` and
+  never resolved, which is the same honesty as a C# instance call whose
+  receiver is a field rather than a type.
+
+A page with no directives and no assets gets a module record but no class
+record. Static markup is not a convention, and one record per marketing page
+would drown the layer that has one.
 
 ## Container formats: one file, several languages
 

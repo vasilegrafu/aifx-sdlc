@@ -63,6 +63,7 @@ on this machine is the failure worth catching first.
 | TypeScript, `.ts` `.tsx` `.mts` `.cts` | `node` + the project's `node_modules/typescript` | present by definition in a TS project |
 | JavaScript, `.js` `.jsx` `.mjs` `.cjs` | `node` + `node_modules/acorn` | ships inside eslint, vite, webpack, rollup |
 | C# | the .NET SDK | the adapter builds itself on first use, ~20s, then caches |
+| HTML templates, `.html` `.jinja` `.j2` | nothing | Django and Jinja, read by regex — `heuristic` fidelity |
 | Vue `.vue`, Svelte `.svelte` | whatever the script block is written in | split first, then read as TypeScript or JavaScript |
 | Razor `.razor` `.cshtml` | the .NET SDK | only the `@code` block is C#; the rest is markup |
 
@@ -221,6 +222,16 @@ Crosses every call made on that name against the members it defines. This found
 four live call sites in a real codebase for a method that has never existed.
 Read the C# caveat below before trusting it there.
 
+**Which pages break if I change this base template?**
+
+```bash
+scripts/query.py imports 'admin/base.html' --name X --lang html --chain
+```
+
+Template inheritance is a registration chain with no barrel file, so this walks
+*down* it — the pages that extend the base, then the pages that extend those.
+Every level renders differently if the base changes, and none of them errors.
+
 **Which conventions are dying?**
 
 Run `shape` over the layer and read the `AGEING` section. Anything listed
@@ -313,9 +324,15 @@ rather than counting them as passing.
 **It reads structure, not behaviour.** `shape` knows a method exists and what it
 calls. It does not know what it means.
 
-**Python, TypeScript, JavaScript and C# only** — plus `.vue`, `.svelte`,
-`.razor` and `.cshtml`, which are split into those languages rather than parsed
-in their own right. Anything else is skipped, and reported as skipped.
+**Python, TypeScript, JavaScript and C# only** — plus Django/Jinja HTML
+templates, and `.vue`, `.svelte`, `.razor` and `.cshtml`, which are split into
+those languages rather than parsed in their own right. Anything else is skipped,
+and reported as skipped.
+
+**Templates are read by regex, not by a parser.** `shape` labels them
+`heuristic`, and it means it: "100% of these pages override `content`" is a
+weaker claim than the same sentence about Python classes. `{% include %}` whose
+target is a variable is recorded as unresolved and never guessed at.
 
 **A Vue 2 component defines nothing this can see.** `export default { methods:
 { … } }` is an object literal, so the Options API yields imports and exports but

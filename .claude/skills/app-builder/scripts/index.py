@@ -125,9 +125,13 @@ def extract_containers(paths, root, repo, commits, uncovered, skipped):
                        "reason": f"{segmenter.FORMAT} segmenter: {exc}"}
                 continue
             seen_any = False
-            for j, (ext, body, offset, _role) in enumerate(spans):
+            for j, (ext, body, offset, role) in enumerate(spans):
                 extractor = for_path(Path("span" + ext))
-                if extractor is None:
+                # Only the code-bearing spans are routed. A Vue `<template>` is
+                # Vue's own dialect, not a Django page, and handing it to the
+                # HTML extractor would file every component under the wrong
+                # language and describe markup that has no directives at all.
+                if role not in ("script", "code") or extractor is None:
                     uncovered[ext] = uncovered.get(ext, 0) + 1
                     continue
                 span = tmp / f"{i}_{j}{ext}"

@@ -1,6 +1,6 @@
 ---
 name: app-builder
-description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, React or TypeScript components, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, which conventions are dying, or where two codebases disagree. Reads Python, TypeScript, JavaScript and C# codebases of any size through a structural index rather than by opening files, so it also answers questions about ASP.NET, React or SQLAlchemy code without reading it.
+description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, React, Vue, Svelte or TypeScript components, Django or Jinja templates, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, which conventions are dying, or where two codebases disagree. Reads Python, TypeScript, JavaScript, C# and HTML templates — including .vue, .svelte, .razor and .cshtml — at any size through a structural index rather than by opening files, so it also answers questions about ASP.NET, React, Vue, Django or SQLAlchemy code without reading it.
 ---
 
 # Generating a layer from codebases you were pointed at
@@ -466,8 +466,12 @@ the nearest layer as a source of conventions instead.
 
 - **Python, TypeScript, JavaScript and C#** — four languages, four extractors,
   each on a real parser rather than on pattern matching, and every record says
-  which language produced it and at what fidelity. **`.vue`, `.svelte`,
-  `.razor` and `.cshtml`** are read too, but they are not languages: a
+  which language produced it and at what fidelity. **Django and Jinja HTML
+  templates** are read too, at `heuristic` fidelity: `{% extends %}` is a base
+  class, `{% block %}` a method, `{% include %}` a call, so `shape` and
+  `imports --chain` work on a template layer unchanged — and template
+  inheritance is a registration chain like any other. **`.vue`, `.svelte`,
+  `.razor` and `.cshtml`** are read as well, but they are not languages: a
   segmenter splits each file into the languages it holds and the ordinary
   extractors read the spans. Their markup and styles are reported as not
   covered. Python needs nothing;
