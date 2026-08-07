@@ -1,5 +1,170 @@
 {
   "app-builder": {
+    "references": [
+      {
+        "name": "django",
+        "repo": "https://github.com/django/django.git",
+        "include": [
+          "django"
+        ]
+      },
+      {
+        "name": "fastapi",
+        "repo": "https://github.com/fastapi/fastapi.git",
+        "include": [
+          "docs_src"
+        ]
+      },
+      {
+        "name": "flask",
+        "repo": "https://github.com/pallets/flask.git",
+        "include": [
+          "examples",
+          "src"
+        ]
+      },
+      {
+        "name": "bulletproof-react",
+        "repo": "https://github.com/alan2207/bulletproof-react.git",
+        "include": [
+          "apps"
+        ]
+      },
+      {
+        "name": "zustand",
+        "repo": "https://github.com/pmndrs/zustand.git",
+        "include": [
+          "examples"
+        ]
+      },
+      {
+        "name": "realworld",
+        "repo": "https://github.com/sveltejs/realworld.git",
+        "include": [
+          "src"
+        ]
+      },
+      {
+        "name": "vue-element-admin",
+        "repo": "https://github.com/PanJiaChen/vue-element-admin.git",
+        "include": [
+          "src"
+        ]
+      },
+      {
+        "name": "vuestic-admin",
+        "repo": "https://github.com/epicmaxco/vuestic-admin.git",
+        "include": [
+          "src"
+        ]
+      },
+      {
+        "name": "eShopOnWeb",
+        "repo": "https://github.com/dotnet-architecture/eShopOnWeb.git",
+        "include": [
+          "src"
+        ]
+      },
+      {
+        "name": "bootstrap",
+        "repo": "https://github.com/twbs/bootstrap.git",
+        "include": [
+          "site",
+          "scss"
+        ]
+      },
+      {
+        "name": "fastapi-fullstack",
+        "repo": "https://github.com/fastapi/full-stack-fastapi-template.git",
+        "include": [
+          "backend",
+          "frontend"
+        ]
+      },
+      {
+        "name": "react-admin",
+        "repo": "https://github.com/marmelab/react-admin.git",
+        "include": [
+          "examples"
+        ]
+      },
+      {
+        "name": "sqlalchemy-examples",
+        "repo": "https://github.com/sqlalchemy/sqlalchemy.git",
+        "include": [
+          "examples"
+        ]
+      },
+      {
+        "name": "mui-demos",
+        "repo": "https://github.com/mui/material-ui.git",
+        "include": [
+          "docs/data"
+        ]
+      },
+      {
+        "name": "redux-toolkit",
+        "repo": "https://github.com/reduxjs/redux-toolkit.git",
+        "include": [
+          "examples"
+        ]
+      },
+      {
+        "name": "pydata-handbook",
+        "repo": "https://github.com/jakevdp/PythonDataScienceHandbook.git",
+        "include": [
+          "notebooks"
+        ]
+      },
+      {
+        "name": "htmx",
+        "repo": "https://github.com/bigskysoftware/htmx.git",
+        "include": [
+          "www"
+        ]
+      },
+      {
+        "name": "alpine",
+        "repo": "https://github.com/alpinejs/alpine.git",
+        "include": [
+          "tests"
+        ]
+      },
+      {
+        "name": "pytorch-examples",
+        "repo": "https://github.com/pytorch/examples.git"
+      },
+      {
+        "name": "keras-io",
+        "repo": "https://github.com/keras-team/keras-io.git",
+        "include": [
+          "examples",
+          "guides"
+        ]
+      },
+      {
+        "name": "mui-x-demos",
+        "repo": "https://github.com/mui/mui-x.git",
+        "include": [
+          "docs/data/data-grid",
+          "docs/data/date-pickers"
+        ]
+      },
+      {
+        "name": "dash-apps",
+        "repo": "https://github.com/plotly/dash-sample-apps.git",
+        "include": [
+          "apps"
+        ]
+      },
+      {
+        "name": "echarts-examples",
+        "repo": "https://github.com/apache/echarts-examples.git",
+        "include": [
+          "public/examples/ts"
+        ]
+      }
+    ],
     "repositories": [
       {
         "name": "atlas",

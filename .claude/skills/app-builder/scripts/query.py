@@ -13,11 +13,19 @@ codebase of any size can be understood without reading it.
     exemplars   the most typical file to copy, and the outlier that shows why
     imports     who imports a symbol -- the wiring that makes it take effect
     questions   the decisions a layer forces, ranked by what they cost
+    practice    how a reference corpus resolves a choice vs. the exemplar
+    deps        what a codebase declares it depends on, and what it runs
     meta        what this index covers and when it was built
 
 `shape` is the one that matters. What is always true is contract: reproduce it.
 What varies is the axis of choice: decide it, deliberately. What one repository
 always does and another never does is a disagreement: ask, do not average.
+
+`practice` is the counterweight, and reads the reference corpus that every other
+command holds out. `shape` cannot question what a codebase is unanimous about --
+unanimity is exactly what it reports as the contract -- so the most deeply
+embedded choice in a codebase is the one nothing ever raises. That is what
+`practice` is for, and evidence is all it produces: the user decides.
 """
 
 from __future__ import annotations
@@ -30,9 +38,10 @@ import re
 import shutil
 from collections import Counter, defaultdict
 
-from _common import (configured_questions, configured_repositories,
-                     configured_solution, find_files, load_config, pct,
-                     read_index, skill_root, truncate, workspace)
+from _common import (configured_questions, configured_references,
+                     configured_repositories, configured_solution, find_files, load_config, pct,
+                     indexed_roles, read_index, skill_root, truncate,
+                     workspace)
 
 # ---------------------------------------------------------------- filtering
 
@@ -123,10 +132,16 @@ def collect(args, kinds=("class",)):
     """
     recs, tech, other = [], {}, 0
     for r in read_index(args.name):
+        # Directive-borne technologies live on the *class* record, because that
+        # is where a template's attributes are recorded -- so the map is fed
+        # from both kinds and merged, rather than from modules alone.
+        markup = markup_technologies_of(r)
+        if markup:
+            tech.setdefault((r["repo"], r["path"]), set()).update(markup)
         if r["k"] == "module":
             found = technologies_of(r.get("imports"))
             if found:
-                tech[(r["repo"], r["path"])] = found
+                tech.setdefault((r["repo"], r["path"]), set()).update(found)
         elif r["k"] in kinds and matches(r, args):
             recs.append(r)
         elif r["k"] == "func" and matches(r, args):
@@ -255,17 +270,44 @@ TECHNOLOGIES = {
     "svelte": ("svelte",),
     "vitest": ("vitest",),
     "jest": ("jest", "@testing-library"),
+    "muix": ("@mui/x-data-grid", "@mui/x-date-pickers", "@mui/x-tree-view",
+             "@mui/x-charts"),
     "sqlalchemy": ("sqlalchemy",),
+    "alembic": ("alembic",),
     "django": ("django",),
     "flask": ("flask",),
     "fastapi": ("fastapi", "starlette"),
     "pydantic": ("pydantic",),
-    "pandas": ("pandas", "numpy"),
+    # Split. Bundling these meant `--tech pandas` matched 66 modules that import
+    # numpy and never touch pandas -- they are different technologies answering
+    # different questions, and a filter that conflates them describes neither.
+    "pandas": ("pandas",),
+    "numpy": ("numpy",),
+    "scipy": ("scipy",),
+    "sklearn": ("sklearn", "scikit-learn"),
+    "torch": ("torch", "torchvision", "pytorch_lightning", "lightning"),
+    "tensorflow": ("tensorflow", "tf"),
+    "keras": ("keras",),
+    "plotly": ("plotly", "dash"),
+    "echarts": ("echarts", "echarts-for-react"),
     "pytest": ("pytest", "unittest"),
     "aspnet": ("Microsoft.AspNetCore",),
     "efcore": ("Microsoft.EntityFrameworkCore",),
     "xunit": ("Xunit", "NUnit", "Moq"),
     "blazor": ("Microsoft.AspNetCore.Components",),
+}
+
+
+# Technologies that are not imported at all. htmx and Alpine arrive as a script
+# tag -- usually a CDN URL that no prefix match will recognise -- and are *used*
+# entirely through attributes. The directive is the only reliable signal, so it
+# is the one used.
+#
+# `@click` and `:class` are deliberately absent: Alpine and Vue share them, and
+# a signal that cannot tell two technologies apart should not name either.
+DIRECTIVE_TECHNOLOGIES = {
+    "htmx": ("hx-",),
+    "alpine": ("x-",),
 }
 
 
@@ -278,6 +320,13 @@ def technologies_of(imports) -> set[str]:
                    for p in prefixes):
                 out.add(tech)
     return out
+
+
+def markup_technologies_of(rec) -> set[str]:
+    """Technologies evidenced by directives rather than by imports."""
+    names = call_names(rec.get("calls"))
+    return {tech for tech, prefixes in DIRECTIVE_TECHNOLOGIES.items()
+            if any(n.startswith(p) for n in names for p in prefixes)}
 
 # ---------------------------------------------------------------- commands
 
@@ -305,6 +354,28 @@ def cmd_config(args):
           f"{target['name']:<20} {target['path']}")
     print("              indexed with the sources; where it has already diverged,"
           "\n              it is the later decision and it wins")
+
+    refs = configured_references()
+    if refs:
+        missing = [r for r in refs if not r["exists"]]
+        print(f"\nREFERENCES    {len(refs)} codebase(s), "
+              f"{len(refs) - len(missing)} present")
+        print("              evidence about what the wider world does, never a"
+              "\n              template. Held out of shape, layers, exemplars,"
+              "\n              questions and DISAGREEMENTS; read only by `practice`.")
+        for r in refs:
+            print(f"  {'ok ' if r['exists'] else 'MISSING'}  {r['name']:<20} {r['path']}")
+            # Scoping is the difference between evidence about how a library is
+            # used and a dump of how it is written, so it is worth seeing here
+            # rather than only in the config file.
+            if r.get("include"):
+                print(f"        include  {', '.join(r['include'])}")
+            if r.get("exclude"):
+                print(f"        exclude  {', '.join(r['exclude'])}")
+    else:
+        print("\nREFERENCES    none configured -- every claim about what is or is not"
+              "\n              current practice is then an assertion, not evidence."
+              '\n              Add them under "references": [{"name": ..., "path": ...}]')
 
     mode = configured_questions()
     explain = {
@@ -552,11 +623,21 @@ def cmd_layers(args):
     dirs = defaultdict(lambda: {"files": 0, "classes": 0, "loc": 0,
                                 "bases": Counter(), "names": []})
     for rec in read_index(args.name):
+        # Only kinds this counts. Anything else -- a manifest, an unparsed file
+        # -- would otherwise create a directory row with no files and no classes
+        # in it, which reads as a layer that exists and is empty.
+        if rec["k"] not in ("module", "class"):
+            continue
         if args.repo and rec["repo"] != args.repo:
             continue
         if args.path and not fnmatch.fnmatch(rec["path"], args.path):
             continue
         if any(fnmatch.fnmatch(rec["path"], g) for g in args.not_path or ()):
+            continue
+        # A solution with a Python backend and a TypeScript frontend reports both
+        # under one directory tree, and the question "where is the React" cannot
+        # be asked without this. Every other measuring command already takes it.
+        if getattr(args, "lang", None) and language_of(rec) != args.lang:
             continue
         d = rec.get("dir") if rec["k"] == "module" else (
             rec["path"].rsplit("/", 1)[0] if "/" in rec["path"] else "")
@@ -1358,10 +1439,226 @@ def cmd_imports(args):
             level += 1
 
 
+def cmd_deps(args):
+    """What each codebase declares it depends on, and what it runs.
+
+    An import proves a package is used somewhere; a manifest says what the
+    project committed to, which is not the same fact and is the one a generated
+    layer has to respect. Code that imports a package nobody declared installs
+    nothing and fails at run time with a resolution error that reads as a path
+    problem.
+
+    `--on NAME` answers the other direction -- who declares this, at what
+    version -- which is how you find out whether a dependency an option implies
+    is already paid for.
+    """
+    everything = [r for r in read_index(args.name, include_references=True)
+                  if r["k"] == "manifest"]
+    records = [r for r in everything
+               if (not args.repo or r["repo"] == args.repo)
+               and (not args.path or fnmatch.fnmatch(r["path"], args.path))]
+    if not records:
+        # Two different answers, and conflating them is how a real finding gets
+        # reported as a tooling problem. A codebase that declares nothing is a
+        # fact worth knowing -- its dependencies live only in whatever
+        # environment happens to be active, and nothing can reproduce it.
+        if not everything:
+            return print("no manifests anywhere in this index."
+                         "\nIf it was built before manifests were read, rebuild it.")
+        where = args.repo or args.path or "that filter"
+        return print(f"no manifest under {where} -- it declares no dependencies."
+                     f"\n{len(everything)} manifest(s) elsewhere in this index, so"
+                     f" the index is not the problem."
+                     f"\nWhatever it imports is satisfied by the ambient"
+                     f" environment and by nothing it carries.")
+
+    roles = indexed_roles(args.name)
+    if args.on:
+        want = args.on.lower()
+        print(f"declares {args.on!r}\n")
+        found = False
+        for r in sorted(records, key=lambda x: (x["repo"], x["path"])):
+            for section in ("deps", "dev_deps"):
+                for name, version in (r.get(section) or {}).items():
+                    if name.lower() == want:
+                        role = roles.get(r["repo"], "exemplar")
+                        tag = "dev" if section == "dev_deps" else "   "
+                        print(f"  {role:<10} {r['repo']}/{r['path']:<44} "
+                              f"{tag} {version}")
+                        found = True
+        if not found:
+            print(f"  nothing declares it -- including it means adding it")
+        return
+
+    for r in sorted(records, key=lambda x: (roles.get(x["repo"], ""), x["repo"])):
+        deps, dev = r.get("deps") or {}, r.get("dev_deps") or {}
+        print(f"{r['repo']}/{r['path']}   [{r.get('ecosystem', '?')}]"
+              f"   {len(deps)} deps, {len(dev)} dev")
+        for name, version in sorted(deps.items())[: args.limit]:
+            print(f"    {name:<36} {version}")
+        if len(deps) > args.limit:
+            print(f"    ... {len(deps) - args.limit} more (--limit)")
+        if r.get("scripts"):
+            print("  SCRIPTS")
+            for name, body in sorted(r["scripts"].items()):
+                print(f"    {name:<16} {truncate(body, 70)}")
+        print()
+
+
+def _mentions(rec, tokens: set[str]) -> set[str]:
+    """Which of `tokens` this record mentions, by import, call, base or decorator.
+
+    Matching is the same shape `_imports_any` uses -- whole specifier, or last
+    segment under either separator -- because a dotted split alone turns
+    `admin/base.html` into `html`.
+    """
+    hit = set()
+    for imp in rec.get("imports") or ():
+        target = imp.get("mod") or ""
+        for cand in (target, imp.get("name"), imp.get("as"),
+                     target.split(".")[-1], target.rsplit("/", 1)[-1]):
+            if cand in tokens:
+                hit.add(cand)
+        # A subpath of a package is a use of that package. Matching only the
+        # whole specifier and its last segment missed `@mui/material/Box` for
+        # `@mui/material` -- 711 modules in MUI's own demo gallery, reported as
+        # 6 -- and `sqlalchemy.orm` for `sqlalchemy`. Deep imports are the norm
+        # in JavaScript and common in Python, so this was not an edge case.
+        #
+        # The separator is required rather than a bare prefix: without it
+        # `react` would claim `react-dom` and `react-router`, which are
+        # different decisions and sometimes the competing options in the same
+        # question.
+        for tok in tokens:
+            if target.startswith(tok + "/") or target.startswith(tok + "."):
+                hit.add(tok)
+    for name in call_names(rec.get("calls")) + call_names(rec.get("invokes")):
+        bare = head(name)
+        if bare in tokens:
+            hit.add(bare)
+        if bare.split(".")[0] in tokens:
+            hit.add(bare.split(".")[0])
+    for b in rec.get("bases") or ():
+        if head(b) in tokens:
+            hit.add(head(b))
+    for d in rec.get("decorators") or ():
+        if head(d) in tokens:
+            hit.add(head(d))
+    return hit
+
+
+def cmd_practice(args):
+    """How the wider world resolves a choice, against how the exemplar resolves it.
+
+    This is the only command that reads the reference corpus, and the only one
+    that is allowed to. Everything else computes a contract, and a contract must
+    come from the code being copied -- nine reference repositories outnumber one
+    exemplar, so letting them in replaces the convention being reproduced with
+    an average of the internet.
+
+    What it answers is a different question: not "what is the convention here"
+    but "is this convention still how anyone does it". Percentages are head to
+    head -- the denominator is modules mentioning *either* option, not modules
+    in the repository -- because the useful comparison is between the two
+    choices, not between one choice and all the code that had no occasion to
+    make it.
+
+    Evidence, not a verdict. A corpus can be unanimous and still wrong for a
+    particular target, and the exemplar disagreeing with it is a question worth
+    raising rather than an error to correct.
+    """
+    tokens = [args.on] + list(args.versus or ())
+    token_set = set(tokens)
+    roles = indexed_roles(args.name)
+
+    # (repo, token) -> module paths; and the most recent touch per pair.
+    users: dict[tuple[str, str], set[str]] = defaultdict(set)
+    latest: dict[tuple[str, str], int] = defaultdict(int)
+    any_use: dict[str, set[str]] = defaultdict(set)
+    lang_modules: dict[str, int] = defaultdict(int)
+
+    for rec in read_index(args.name, include_references=True):
+        if args.lang and language_of(rec) != args.lang:
+            continue
+        if args.path and not fnmatch.fnmatch(rec.get("path", ""), args.path):
+            continue
+        repo, path = rec.get("repo"), rec.get("path", "")
+        if rec["k"] == "module":
+            lang_modules[repo] += 1
+        for tok in _mentions(rec, token_set):
+            users[(repo, tok)].add(path)
+            any_use[repo].add(path)
+            latest[(repo, tok)] = max(latest[(repo, tok)], stamp(rec))
+
+    if not any_use:
+        return print(f"nothing in the index mentions {' or '.join(tokens)}"
+                     + (f" in {args.lang}" if args.lang else "")
+                     + "\nCheck the spelling, or widen with --lang/--path.")
+
+    print("practice: " + "  vs  ".join(tokens)
+          + (f"          [{args.lang}]" if args.lang else ""))
+    print("  modules mentioning each option, as a share of those mentioning any."
+          "\n  A module using both counts under both, so the row can exceed 100%."
+          "\n  Evidence, not a verdict.\n")
+
+    width = max(max(len(r) for r in any_use), 12) + 1
+    cell = 20
+    print(f"    {'':<{width}}" + "".join(f"  {truncate(t, cell - 2):<{cell}}"
+                                         for t in tokens) + "  any")
+    order = {"exemplar": 0, "target": 1, "reference": 2}
+    grouped: dict[str, list] = defaultdict(list)
+    for repo in any_use:
+        grouped[roles.get(repo, "exemplar")].append(repo)
+
+    for role in sorted(grouped, key=lambda r: order.get(r, 9)):
+        print(f"  {role.upper()}")
+        for repo in sorted(grouped[role], key=lambda r: -len(any_use[r])):
+            total = len(any_use[repo])
+            cells = []
+            for tok in tokens:
+                n = len(users[(repo, tok)])
+                cells.append(f"{n:>4} {str(pct(n, total)) + '%':>5} {when(latest[(repo, tok)]):>8}"
+                             if n else f"{'--':>4} {'':>5} {'':>8}")
+            print(f"    {repo:<{width}}" + "".join(f"  {c:<{cell}}" for c in cells)
+                  + f"  {total:>4}"
+                  + (f"  of {lang_modules[repo]} indexed" if lang_modules.get(repo) else ""))
+        print()
+
+    # The two readings worth stating, because both are easy to miss in a table.
+    refs = [r for r in any_use if roles.get(r) == "reference"]
+    exemplars = [r for r in any_use if roles.get(r, "exemplar") == "exemplar"]
+    if refs and len(tokens) > 1:
+        corpus = {tok: sum(len(users[(r, tok)]) for r in refs) for tok in tokens}
+        favoured = max(corpus, key=corpus.get)
+        print(f"  corpus favours   {favoured}"
+              f"   ({', '.join(f'{t} {corpus[t]}' for t in tokens)}"
+              f" across {len(refs)} reference codebase(s))")
+        for ex in exemplars:
+            mine = {tok: len(users[(ex, tok)]) for tok in tokens}
+            if any(mine.values()):
+                theirs = max(mine, key=mine.get)
+                verdict = ("agrees" if theirs == favoured
+                           else f"DISAGREES -- it uses {theirs}")
+                print(f"  {ex} {verdict}")
+
+    stale = [(tok, latest[(ex, tok)]) for ex in exemplars for tok in tokens
+             if users.get((ex, tok)) and latest[(ex, tok)]]
+    if stale:
+        newest = max(t for _, t in stale)
+        for tok, ts in stale:
+            if newest - ts > 365 * 24 * 3600:
+                print(f"  AGEING: the exemplar's {tok} has not been touched since"
+                      f" {when(ts)}, while {when(newest)} is current here")
+
+
 # ---------------------------------------------------------------- cli
 
 
-def main() -> int:
+def main(argv=None) -> int:
+    # argv is a parameter so the commands can be exercised in process.
+    # Nothing tested any of them while the entry point read sys.argv
+    # directly, and the reference-corpus hold-out -- the invariant most
+    # worth pinning -- is invisible from an extractor test.
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -1380,6 +1677,7 @@ def main() -> int:
     p.add_argument("--path", help="glob on the file path")
     p.add_argument("--not-path", action="append", metavar="GLOB", default=[],
                    help="exclude paths matching this glob; repeatable")
+    p.add_argument("--lang", help="restrict to one language, e.g. python, typescript")
     p.add_argument("--limit", type=int, default=40)
     p.set_defaults(fn=cmd_layers)
 
@@ -1424,6 +1722,25 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=6)
     p.set_defaults(fn=cmd_calls)
 
+    p = sub.add_parser("deps", help="what each codebase declares it depends on")
+    p.add_argument("--name", default="default")
+    p.add_argument("--repo", help="restrict to one repository")
+    p.add_argument("--path", help="glob on the manifest path")
+    p.add_argument("--on", metavar="NAME", help="who declares this package, and at what version")
+    p.add_argument("--limit", type=int, default=40)
+    p.set_defaults(fn=cmd_deps)
+
+    p = sub.add_parser("practice",
+                       help="how the reference corpus resolves a choice vs. the exemplar")
+    p.add_argument("--name", default="default")
+    p.add_argument("--on", required=True, metavar="TOKEN",
+                   help="an import, call, base or decorator, e.g. pathlib")
+    p.add_argument("--versus", action="append", metavar="TOKEN", default=[],
+                   help="the competing choice; repeatable")
+    p.add_argument("--lang", help="restrict to one language, e.g. python, typescript")
+    p.add_argument("--path", help="glob on the file path")
+    p.set_defaults(fn=cmd_practice)
+
     p = sub.add_parser("conform", help="does the generated layer still keep the contract")
     p.add_argument("--name", default="default")
     p.add_argument("--path", required=True, help="glob selecting the source layer")
@@ -1457,7 +1774,7 @@ def main() -> int:
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(fn=cmd_proof)
 
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
     args.fn(args)
     return 0
 

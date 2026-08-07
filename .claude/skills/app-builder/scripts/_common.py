@@ -94,21 +94,79 @@ def load_config() -> dict:
     return block
 
 
+CORPUS_DIR = ".reference_corpus"
+
+
+def corpus_root() -> Path:
+    """Where fetched reference codebases live: `.reference_corpus/` at the root.
+
+    Gitignored, and it has to be for a reason beyond size: every clone carries
+    its own `.git`, and `git add .` over a directory containing one writes a
+    gitlink -- a phantom submodule pointing at a repository nobody can fetch.
+    The leading dot also means `_is_skipped_dir` skips it, so indexing the
+    solution can never wander into twenty other codebases.
+    """
+    return repo_root() / CORPUS_DIR
+
+
+def _repo_records(entries, role: str) -> list[dict]:
+    out = []
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        url = entry.get("repo")
+        name = entry.get("name")
+        if url:
+            # A reference is named, cloned and located by that one name, so the
+            # directory *is* the name and there is nothing to keep in sync. A
+            # config that also gave a path would have two answers to where the
+            # code is, and they would disagree the first time one was edited.
+            if not name:
+                name = url.rstrip("/").rsplit("/", 1)[-1].removesuffix(".git")
+            path = corpus_root() / name
+        elif entry.get("path"):
+            path = Path(entry["path"])
+            if not path.is_absolute():
+                path = repo_root() / path
+        else:
+            continue
+        path = path.resolve()
+        out.append({"name": name or path.name,
+                    "path": path, "exists": path.is_dir(),
+                    "repo": url or "", "rev": entry.get("rev") or "",
+                    "exclude": tuple(entry.get("exclude") or ()),
+                    "include": tuple(entry.get("include") or ()),
+                    "role": role, "is_target": role == "target"})
+    return out
+
+
 def configured_repositories() -> list[dict]:
     """`[{name, path, exists}]` from config. Paths may be relative to the root."""
-    out = []
-    for entry in load_config().get("repositories") or []:
-        if not isinstance(entry, dict) or not entry.get("path"):
-            continue
-        path = Path(entry["path"])
-        if not path.is_absolute():
-            path = repo_root() / path
-        path = path.resolve()
-        out.append({"name": entry.get("name") or path.name,
-                    "path": path, "exists": path.is_dir(),
-                    "exclude": tuple(entry.get("exclude") or ()),
-                    "is_target": False})
-    return out
+    return _repo_records(load_config().get("repositories"), "exemplar")
+
+
+def configured_references() -> list[dict]:
+    """Widely-used codebases indexed as *evidence*, never as templates.
+
+    A third role, and the distinction it draws is the whole point of it:
+
+        exemplar   what we copy      -- its conventions are the contract
+        target     what we build     -- the later decision, and it wins
+        reference  what we consult   -- what the wider world does, and when
+
+    They are indexed together because the question "is this convention still
+    how anyone does it" cannot be answered from one codebase, and it is the
+    question that separates a live convention from a fossil that happens to
+    hold a majority.
+
+    They must never reach `shape`, `layers`, `exemplars`, `questions` or
+    DISAGREEMENTS. Nine reference repositories outnumber one exemplar, so
+    letting them into a contract computation replaces the convention being
+    reproduced with an average of the internet -- the same failure as averaging
+    two exemplars, at nine times the scale. `read_index` filters them out
+    everywhere; `practice` opts back in, and is the only thing that does.
+    """
+    return _repo_records(load_config().get("references"), "reference")
 
 
 def configured_solution() -> dict:
@@ -129,7 +187,9 @@ def configured_solution() -> dict:
     path = path.resolve()
     return {"name": entry.get("name") or path.name, "path": path,
             "exists": path.is_dir(), "exclude": tuple(entry.get("exclude") or ()),
-            "is_target": True}
+            "include": tuple(entry.get("include") or ()),
+            "repo": "", "rev": "",
+            "role": "target", "is_target": True}
 
 
 QUESTION_MODES = ("many", "key", "none")
@@ -177,24 +237,87 @@ def workspace(name: str) -> Path:
     return skill_root() / ".data" / name
 
 
-def index_path(name: str) -> Path:
-    return workspace(name) / "index.jsonl"
+def shard_name(repo: str) -> str:
+    """A repository's file name inside a workspace. Not the repo name verbatim:
+    a name is free text from a config file and reaches the filesystem here."""
+    safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in repo)
+    return f"{safe or 'repo'}.jsonl"
 
 
-def read_index(name: str):
-    """Yield index records. Streams -- the file can be larger than memory."""
-    path = index_path(name)
-    if not path.exists():
+def index_path(name: str, repo: str | None = None) -> Path:
+    """Where a repository's records live, or the workspace holding all of them.
+
+    One file per repository rather than one file for everything. The whole point
+    is that a rebuild can be *partial*: editing one file in the target used to
+    mean re-reading every reference codebase as well, which is minutes of work to
+    learn something about seventy files. Each repository is independently
+    readable and independently replaceable, and `read_index` streams whichever
+    shards are present.
+    """
+    ws = workspace(name)
+    return ws / shard_name(repo) if repo else ws
+
+
+def index_shards(name: str) -> list[Path]:
+    ws = workspace(name)
+    return sorted(ws.glob("*.jsonl")) if ws.is_dir() else []
+
+
+def indexed_roles(name: str) -> dict[str, str]:
+    """`{repo: role}` as the index recorded it.
+
+    Read from the index rather than from the config, because the config can
+    change after a build and the records cannot. An index built before roles
+    existed reports none, and everything in it is treated as an exemplar --
+    which is what it was.
+    """
+    try:
+        meta = json.loads((workspace(name) / "meta.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return dict(meta.get("roles") or {})
+
+
+def reference_repos(name: str) -> frozenset:
+    return frozenset(r for r, role in indexed_roles(name).items()
+                     if role == "reference")
+
+
+def read_index(name: str, include_references: bool = False):
+    """Yield index records. Streams -- the file can be larger than memory.
+
+    Reference repositories are held out unless asked for. That default is the
+    mechanism behind `configured_references`: a reference is evidence about the
+    wider world, and the moment it reaches a command that computes what is
+    ALWAYS true, the contract being reproduced is no longer the exemplar's.
+    Opting in is one keyword and `practice` is the only caller that uses it.
+    """
+    shards = index_shards(name)
+    if not shards:
         sys.exit(
-            f"no index named {name!r} at {path}\n"
+            f"no index named {name!r} at {workspace(name)}\n"
             f"build one first:  ./.venv/Scripts/python.exe "
             f".claude/skills/app-builder/scripts/index.py --name {name} <codebase-root>..."
         )
-    with path.open("r", encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line:
-                yield json.loads(line)
+    held_out = frozenset() if include_references else reference_repos(name)
+    for path in shards:
+        # A held-out repository's shard is not opened at all, which is the
+        # incidental reward for splitting the file: the common case reads only
+        # the exemplars and the target.
+        if not include_references and path.stem in {shard_name(r).removesuffix(".jsonl")
+                                                    for r in held_out}:
+            continue
+        with path.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                rec = json.loads(line)
+                # Still checked per record: a shard name is derived from a repo
+                # name and two names can sanitise to one file.
+                if rec.get("repo") in held_out:
+                    continue
+                yield rec
 
 
 def _is_skipped_dir(name: str) -> bool:
@@ -205,6 +328,40 @@ def _is_skipped_dir(name: str) -> bool:
 def _is_excluded(relpath: str, excluded: tuple[str, ...]) -> bool:
     low = relpath.lower()
     return any(low == e or low.startswith(e + "/") for e in excluded)
+
+
+def _is_included(relpath: str, included: tuple[str, ...]) -> bool:
+    """Whether a path is inside one of the named subtrees. Empty means all.
+
+    The mirror of `_is_excluded`, and the right primitive for a reference
+    codebase. `exclude` is a blacklist: you have to name everything you do not
+    want, you will miss some, and what you miss is silently indexed as evidence.
+    `include` names the directories where a library is *used* -- which is the
+    only part of a library's own repository worth having -- and everything else
+    is out without being enumerated.
+
+    Both may be given. `include` chooses the subtrees, `exclude` removes parts of
+    them, which is how you take `examples/` while dropping `examples/**/dist`.
+    """
+    if not included:
+        return True
+    low = relpath.lower()
+    return any(low == i or low.startswith(i + "/") for i in included)
+
+
+def _may_contain_included(relpath: str, included: tuple[str, ...]) -> bool:
+    """Whether walking into this directory could still reach an included subtree.
+
+    Without this the walk descends the whole repository and discards it a file
+    at a time -- correct, and slow enough to matter on a monorepo of 6,000
+    files. A directory is worth entering when it is inside an include, or when
+    an include is inside it.
+    """
+    if not included:
+        return True
+    low = relpath.lower()
+    return any(low == i or low.startswith(i + "/") or i.startswith(low + "/")
+               for i in included)
 
 
 def find_files(root: Path, names: tuple[str, ...], max_depth: int = 4) -> list[str]:
@@ -233,7 +390,8 @@ def find_files(root: Path, names: tuple[str, ...], max_depth: int = 4) -> list[s
 
 
 def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
-                      extensions: tuple[str, ...] = (".py",), uncovered=None):
+                      extensions: tuple[str, ...] = (".py",), uncovered=None,
+                      include: tuple[str, ...] = ()):
     """Walk a codebase for files any extractor can read.
 
     `exclude` behaves as it does in `iter_py_files`, which is the Python-only
@@ -243,14 +401,23 @@ def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
     """
     lowered = tuple(e.lower() for e in extensions)
     excluded = tuple(e.strip("/").lower() for e in exclude if e.strip("/"))
+    included = tuple(i.strip("/").lower() for i in include if i.strip("/"))
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
         dirnames[:] = [
             d for d in dirnames
             if not _is_skipped_dir(d)
             and not _is_excluded(rel(here / d, root), excluded)
+            and _may_contain_included(rel(here / d, root), included)
         ]
+        # A file directly under an included subtree's parent is not in it. The
+        # directory prune above keeps the walk cheap; this is what keeps it
+        # correct.
+        if not _is_included(rel(here, root), included) and here != root:
+            continue
         for fn in filenames:
+            if included and not _is_included(rel(here / fn, root), included):
+                continue
             if not fn.lower().endswith(lowered):
                 # Not ours. Count it anyway if the caller is keeping a tally:
                 # what this skill cannot read has to be reportable.
