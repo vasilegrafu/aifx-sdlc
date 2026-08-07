@@ -132,7 +132,7 @@ the information.
 
 Clones into `.claude/skills/app-builder/.reference_corpus/<name>` — gitignored,
 disposable, and safe to delete and re-fetch. It sits **inside the skill**, next
-to the `.data/` indexes, because it is the skill's working data: copy the skill
+to the `.indexes/` indexes, because it is the skill's working data: copy the skill
 into another checkout and both the corpus and the `.gitignore` rule that keeps
 it untracked go with it. **Budget disk**: a corpus of this kind runs to a couple
 of gigabytes. The first run takes a while on a slow connection, and it is the
@@ -151,21 +151,41 @@ does, which is worse than failing.
 ## 5. Build the index
 
 ```bash
-./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py --name main
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py
 ```
 
-**Expect minutes, not seconds** — it took about seven here. Most of that is the
-reference corpus, and TypeScript is the slow part. `meta` will tell you what it
-covered; do not trust a number typed into a document for that.
+**Expect minutes, not seconds** — about six here. Most of that is the reference
+corpus, and TypeScript is the slow part. `meta` will tell you what it covered;
+do not trust a number typed into a document for that.
 
 After editing your own code, rebuild only that:
 
 ```bash
-index.py --name main --only <name>          # under a second
+index.py --only <name>          # a few seconds
 ```
 
-One file per repository, so a partial rebuild leaves every other shard alone.
-`meta.json` carries per-repository totals, so the summary stays honest.
+Most of those seconds are not the work: indexing one repository takes about a
+second, and the rest is starting Python and asking each language's toolchain
+whether it is installed. Recomputing the roll-up over every repository costs
+about 0.03s, which is why it is done every time rather than merged.
+
+One directory per repository, under the role it was configured as:
+
+```
+.claude/skills/app-builder/.indexes/
+  exemplar_corpus/atlas/     index.jsonl  meta.json
+  solution/<yours>/          index.jsonl  meta.json
+  reference_corpus/django/   index.jsonl  meta.json
+  meta.json                  the roll-up
+```
+
+A partial rebuild rewrites one directory and leaves the rest alone. Each
+repository records its own totals, and the roll-up is recomputed from those
+every build rather than edited — so it cannot drift from what it summarises.
+
+**The role is the directory.** Holding references out of a contract computation
+means not walking into `reference_corpus/`; there is no metadata that could say
+otherwise.
 
 **Never open the index.** It is megabytes of JSONL, and every question you would
 ask it has a subcommand that answers in a few hundred lines.
@@ -178,11 +198,9 @@ ask it has a subcommand that answers in a few hundred lines.
 Q=".claude/skills/app-builder/scripts/query.py"
 
 ./.venv/Scripts/python.exe $Q config
-./.venv/Scripts/python.exe $Q meta --name main
+./.venv/Scripts/python.exe $Q meta
 ./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/selftest.py
 ```
-
-What a working setup looks like:
 
 What to look for, rather than what the numbers should be:
 
@@ -194,14 +212,23 @@ What to look for, rather than what the numbers should be:
   is a toolchain you have not installed, which is fine if you do not need it.
 
 `selftest.py` checks that every extractor emits the same records and that the
-commands hold their invariants — including the one that matters most, that a
-reference codebase never reaches a contract computation.
+commands hold their invariants. Three of those are worth naming, because each
+is a failure that would otherwise look like a plausible answer:
+
+- **A reference codebase never reaches a contract computation.** The one that
+  matters most — twenty-three references outvote one exemplar, and the output
+  stays convincing while describing nobody's code.
+- **A repository's role is the directory it is in.** Move one into
+  `reference_corpus/` and the contract commands must stop seeing it, with no
+  metadata edited.
+- **The reference corpus is not walkable from a codebase that contains it.**
+  Tested with the leading dot removed, so it does not pass by coincidence.
 
 Then ask it something real:
 
 ```bash
-./.venv/Scripts/python.exe $Q layers --name main --depth 3
-./.venv/Scripts/python.exe $Q practice --name main --on pathlib --versus os.path --lang python
+./.venv/Scripts/python.exe $Q layers --depth 3
+./.venv/Scripts/python.exe $Q practice --on pathlib --versus os.path --lang python
 ```
 
 Day-to-day use is [the manual](.claude/skills/app-builder/MANUAL.md), which
@@ -241,8 +268,8 @@ before that fix will look plausible and be wrong. Rebuild after installing.
 a config that half-parses is worse than one that does not. Trailing commas are
 the usual cause.
 
-**`no index named 'main'`.** Build one (step 5). The name is a label for the
-whole index, not a repository — one index holds every configured codebase.
+**`no index at ...`.** Build one (step 5). There is one index and it holds every
+configured codebase; `APP_BUILDER_INDEX` moves it elsewhere if you need a second.
 
 **`practice` reports a smaller corpus than expected.** References were not
 fetched, or a clone failed. `query.py config` lists each as `ok` or `MISSING`.
@@ -252,4 +279,5 @@ Verdicts are evidence, not facts: read how many codebases produced one before
 quoting it — two is not a corpus.
 
 **A partial rebuild reported the wrong totals.** Fixed, but if `meta.json` ever
-disagrees with the shards, a full `index.py --name main` restores it.
+disagrees with what is on disk, a full `index.py` restores it — the roll-up is
+derived from the per-repository files, so rebuilding is the whole repair.

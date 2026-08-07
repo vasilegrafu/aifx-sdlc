@@ -103,42 +103,59 @@ treated as absent.
 
 ## Quick start
 
-`--name` names the **index**, not a repository. One index holds every configured
-repository *plus* the solution, each under its own name, and holding them
-together is what makes `DISAGREEMENTS` possible. `index.py` has no per-repository
-filter; `query.py --repo` is where you narrow to one. So `--name atlas` below
-builds an index that also contains `solution.university` — the name is a label,
-not a selection.
+There is **one index**, and it holds every configured repository *plus* the
+solution — each in its own directory, under the role it was configured as.
+Holding them together is what makes `DISAGREEMENTS` possible. `index.py` has no
+per-repository filter; `query.py --repo` is where you narrow to one.
 
 ```bash
 # 1. build the index: every configured repository, plus the solution
-./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py --name atlas
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py
 
 # ... and after editing your own code, rebuild only that:
-#     index.py --name atlas --only solution.university      (seconds, not minutes)
+#     index.py --only solution.university      (seconds, not minutes)
 
 # 2. what is in there
-scripts/query.py layers --name atlas --depth 3
+scripts/query.py layers --depth 3
 
 # 3. what is the contract of a layer
-scripts/query.py shape --name atlas --path 'database/*/models/*'
+scripts/query.py shape --path 'database/*/models/*'
 
 # 4. which file to copy
-scripts/query.py exemplars --name atlas --path 'database/*/models/*'
+scripts/query.py exemplars --path 'database/*/models/*'
 ```
 
 Indexing is cheap — a few seconds for hundreds of files — so rebuild whenever a
 source may have changed. Staleness costs more than the rebuild.
 
-**Never open the index.** It is one `.jsonl` file per repository under
-`.data/<name>/`, megabytes in total, and every question you would ask it has a
-subcommand that answers in a few hundred lines.
+**Never open the index.** It is a directory per repository under
+`.indexes/<role>/<repo>/`, megabytes in total, and every question you would ask
+it has a subcommand that answers in a few hundred lines.
 
-The split is what makes `--only` possible: a full build of fourteen codebases
-takes minutes, rebuilding one takes under a second, and every other shard is
-left untouched. `meta.json` carries per-repository totals and a record of which
-repository owns each physically shared file, so a partial rebuild still reports
-the whole index honestly and cannot double-count a linked library.
+```
+.indexes/
+  exemplar_corpus/atlas/     index.jsonl  meta.json
+  solution/<yours>/          index.jsonl  meta.json
+  reference_corpus/django/   index.jsonl  meta.json
+  meta.json                  the roll-up, recomputed every build
+```
+
+**The role is the directory, not a field.** That is what holds references out of
+`shape`, `layers`, `exemplars`, `questions` and `DISAGREEMENTS` — those commands
+do not walk into `reference_corpus/`, so there is no roles map that can be
+absent, stale, or disagree with the index it describes.
+
+The split is what makes `--only` possible: a full build of the whole corpus
+takes minutes, rebuilding one repository takes under a second, and every other
+directory is left untouched. Each repository's own `meta.json` carries its
+totals and a record of which physical files it owns, so a partial rebuild still
+reports the whole index honestly and cannot double-count a linked library.
+
+The roll-up is never edited, only recomputed from those files. That is
+deliberate: when totals lived in one shared document, a partial rebuild had to
+merge back what it had not read, and the version that forgot dropped every
+untouched repository — until the summary described three repositories while
+twenty sat on disk. A summary that can only be recomputed cannot drift.
 
 ---
 
@@ -198,7 +215,7 @@ describes a form neither one uses.
 ### The same command, on a React layer
 
 ```bash
-scripts/query.py shape --name X --kind func --tech react --path 'webapp/src/components/*'
+scripts/query.py shape --kind func --tech react --path 'webapp/src/components/*'
 ```
 
 ```
@@ -222,17 +239,17 @@ frequently a name like that one.
 **I inherited this codebase and have no idea what is in it**
 
 ```bash
-scripts/query.py layers --name X --depth 3
-scripts/query.py proof  --name X            # tests, entry points, interpreter
-scripts/query.py shape  --name X --path '<the layer that looked interesting>/*'
+scripts/query.py layers --depth 3
+scripts/query.py proof             # tests, entry points, interpreter
+scripts/query.py shape  --path '<the layer that looked interesting>/*'
 ```
 
 **I need to add a tenth model to a layer that has nine**
 
 ```bash
-scripts/query.py shape     --name X --base <TheBaseClass>
-scripts/query.py exemplars --name X --base <TheBaseClass>
-scripts/query.py imports   --name X <AnExistingMember> --chain
+scripts/query.py shape     --base <TheBaseClass>
+scripts/query.py exemplars --base <TheBaseClass>
+scripts/query.py imports   <AnExistingMember> --chain
 ```
 
 The last one matters most. It follows the registration chain upward and lists
@@ -242,8 +259,8 @@ nothing errors — the table is simply never created.
 **Did the code I generated keep the contract?**
 
 ```bash
-scripts/index.py --name X                   # re-index, target included
-scripts/query.py conform --name X \
+scripts/index.py                   # re-index, target included
+scripts/query.py conform \
     --repo <source> --path '<source layer>' \
     --target-repo <target> --target-path '<generated layer>'
 ```
@@ -254,7 +271,7 @@ third kind.
 **Is anything calling a method that does not exist?**
 
 ```bash
-scripts/query.py calls --name X --on <ClassName>
+scripts/query.py calls --on <ClassName>
 ```
 
 Crosses every call made on that name against the members it defines. This found
@@ -273,7 +290,7 @@ outside the index, and absence of a caller there is not absence of a caller.
 **Which pages break if I change this base template?**
 
 ```bash
-scripts/query.py imports 'admin/base.html' --name X --lang html --chain
+scripts/query.py imports 'admin/base.html' --lang html --chain
 ```
 
 Template inheritance is a registration chain with no barrel file, so this walks
@@ -302,7 +319,7 @@ it without `--depth 1`.
 **What should I actually be asked before generating?**
 
 ```bash
-scripts/query.py questions --name X --path '<layer>' --limit 3
+scripts/query.py questions --path '<layer>' --limit 3
 ```
 
 `shape` reports everything that varies. Most of it does not deserve a question.
@@ -319,7 +336,7 @@ because that entity references an instrument. And anything the **generated code
 already answers**, when you pass `--target-path`:
 
 ```bash
-scripts/query.py questions --name X --path '<source layer>'     --target-path '<generated layer>'
+scripts/query.py questions --path '<source layer>'     --target-path '<generated layer>'
 ```
 
 Nothing is remembered between runs. Answers are not recorded anywhere, so every
@@ -346,7 +363,7 @@ raises. That needs a second opinion, which is what the `reference_corpus` in
 templates.
 
 ```bash
-scripts/query.py practice --name X --on useState --versus useQuery --lang typescript
+scripts/query.py practice --on useState --versus useQuery --lang typescript
 ```
 
 ```
@@ -382,15 +399,15 @@ Three things to keep in mind reading it:
 
 ## Command reference
 
-Every command except `config` takes `--name <index>` — `config` reads
-`config.json` and no index, so it is the one thing that works before you have
-built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
-`imports` and `calls`.
+Every command reads the one index, except `config` — it reads `config.json` and
+no index, so it is the one thing that works before you have built anything.
+Filters marked ● are shared by `find`, `shape`, `exemplars`, `imports` and
+`calls`.
 
 | Command | Answers |
 |---|---|
 | `config` | which codebases and destination are configured, and whether they exist |
-| `meta --name X` | what an index covers, when built, which languages, what was skipped, `git_dated` (how many files got a real commit date) and `shallow` (repositories with no history) |
+| `meta` | what an index covers, when built, which languages, what was skipped, `git_dated` (how many files got a real commit date) and `shallow` (repositories with no history) |
 | `layers` | what parts exist — directories, class counts, dominant base |
 | `find` | the definitions matching a filter, or `--files` for paths alone |
 | `shape` | what is ALWAYS true, what VARIES, what is ageing, where repos disagree |
@@ -434,8 +451,8 @@ one against the members of both. Narrow it to the file you meant.
 **Building an index**
 
 ```bash
-scripts/index.py --name X                 # every configured repository
-scripts/index.py --name X <path> <path>   # explicit roots, ignoring config
+scripts/index.py                 # every configured repository
+scripts/index.py <path> <path>   # explicit roots, ignoring config
     --no-git         skip last-commit dates (recency falls back to mtime)
     --no-solution    sources only, leaving out the generated target
     --max-bytes N    skip files larger than this
@@ -516,7 +533,15 @@ components" from "nothing read them". Check `meta` before believing an absence.
 
 ## Troubleshooting
 
-**`no index named 'X'`** — build it: `index.py --name X`.
+**`no index at .claude/skills/app-builder/.indexes`** — build it: `index.py`.
+
+**`.indexes holds reference codebases only`** — references are evidence, never a
+template, so no contract can be computed from them. Configure an
+`exemplar_corpus` or a `solution` and rebuild.
+
+**Build it somewhere else** — `APP_BUILDER_INDEX=/some/path` moves the whole
+index. This is what the old `--name` was for; a path cannot be mistaken for a
+repository the way a name could.
 
 **A repository shows `MISSING` in `config`** — the path in `config.json` does not
 exist on this machine. Config holds absolute paths and is expected to be wrong on
@@ -571,12 +596,12 @@ even when two solutions link to the same library through junctions. `meta` repor
                            typescript is pinned to 5.x: 7 is the native port and
                            does not expose the API the adapter uses
   node_modules/            those parsers — gitignored; restore with npm install
-  .data/                   indexes — gitignored, rebuildable, never edited by hand
+  .indexes/                   indexes — gitignored, rebuildable, never edited by hand
   .reference_corpus/       the reference codebases, cloned by fetch.py —
                            gitignored, disposable, restore with fetch.py
 ```
 
-Delete `.data/` any time. It is derived, and `index.py` rebuilds it in seconds.
+Delete `.indexes/` any time. It is derived, and `index.py` rebuilds it in seconds.
 Its neighbour `.reference_corpus/` is derived too, and that is exactly why they
 are siblings rather than nested: one comes back from local disk in minutes, the
 other over the network, and "delete the derived directory" must not silently

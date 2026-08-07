@@ -99,8 +99,8 @@ default. One `also:` line of this kind is worth more than any count on its own.
 not to average it:
 
 ```bash
-scripts/query.py shape --name <index> --path '<dir>/*' --base <Base>
-scripts/query.py find  --name <index> --path '<dir>/*' --files
+scripts/query.py shape --path '<dir>/*' --base <Base>
+scripts/query.py find  --path '<dir>/*' --files
 ```
 
 Narrow by `--base`, by `--decorator`, or by a `--path` one level deeper, and run
@@ -129,7 +129,7 @@ the entity to `session`, and the error arrives one frame away from anything that
 explains it. The clumsiness was carrying information.
 
 So: **when your version is more ergonomic than the exemplar, find a caller before
-you keep it.** `imports <Symbol> --name <index>` lists them, and one real call
+you keep it.** `imports <Symbol>` lists them, and one real call
 site settles in a second what an argument about taste will not settle at all.
 If the improvement survives that, keep it and say you deviated.
 

@@ -57,7 +57,7 @@ Index once, query many times, then read two or three files in full — chosen by
 the index, not by guessing.
 
 ```bash
-./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py --name <index-name>
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py
 ```
 
 With no arguments it indexes every codebase declared in the config — see below.
@@ -152,9 +152,9 @@ solution up elsewhere is one command:
 `fetch.py` is deliberately not part of `index.py`: indexing is local, offline and
 repeatable, and a build that quietly reaches for the network fails differently
 depending on where it runs. The corpus lives *inside this skill*, beside
-`.data/`, so the rule keeping it out of git travels with the skill rather than
+`.indexes/`, so the rule keeping it out of git travels with the skill rather than
 being a line in a root `.gitignore` another checkout would not have. It is
-gitignored and disposable like `.data/` -- and must stay so for a second reason,
+gitignored and disposable like `.indexes/` -- and must stay so for a second reason,
 that each clone carries its own `.git` and `git add .` over such a directory
 writes a phantom submodule.
 
@@ -237,8 +237,8 @@ Separate them **at query time**, with `--path` to look inside one and
 `--not-path` to hold it out:
 
 ```bash
-scripts/query.py layers --name <index> --not-path 'devfx/*'   # the application
-scripts/query.py find   --name <index> --path 'devfx/database/*'  # what it calls
+scripts/query.py layers --not-path 'devfx/*'   # the application
+scripts/query.py find   --path 'devfx/database/*'  # what it calls
 ```
 
 A `shape` run across both averages a library's conventions into an
@@ -294,7 +294,7 @@ to this repository's root.
 
 ```bash
 scripts/query.py config                    # codebases, destination, indexes built
-scripts/query.py meta --name <index-name>  # what a built index actually covers
+scripts/query.py meta  # what a built index actually covers
 ```
 
 `config` reports each repository as `ok` or `MISSING` — a configured path that
@@ -339,7 +339,7 @@ out to be wrong and the structure is load-bearing.
 ### 2. Find the layer
 
 ```bash
-scripts/query.py layers --name <index-name> --depth 3 --not-path '<library>/*'
+scripts/query.py layers --depth 3 --not-path '<library>/*'
 ```
 
 Directories, class counts and the dominant base class of each. The layer the
@@ -356,7 +356,7 @@ module-level functions.
 ### 3. Learn its shape — the important step
 
 ```bash
-scripts/query.py shape --name <index-name> --path '<dir>/*' [--base <Base>]
+scripts/query.py shape --path '<dir>/*' [--base <Base>]
 ```
 
 Read the output as separate instructions, not as a report:
@@ -406,7 +406,7 @@ around it.
 ### 4. Read the exemplars — and only these
 
 ```bash
-scripts/query.py exemplars --name <index-name> --path '<dir>/*' [--base <Base>]
+scripts/query.py exemplars --path '<dir>/*' [--base <Base>]
 ```
 
 Read the most typical file **in full** — it is what you copy the structure of.
@@ -423,7 +423,7 @@ So when a layer calls into a library, check the names against the **library**,
 not against the exemplar. Do not read for this — ask:
 
 ```bash
-scripts/query.py calls --name <index-name> --on <ReceiverName>
+scripts/query.py calls --on <ReceiverName>
 ```
 
 It crosses every method invoked on that name against the members that name
@@ -438,7 +438,7 @@ dead line reached nine generated controllers at once before anything ran.
 ### 5. Find the wiring
 
 ```bash
-scripts/query.py imports <an-existing-member> --name <index-name> --chain
+scripts/query.py imports <an-existing-member> --chain
 ```
 
 Every layer has something that makes a new member take effect — a package
@@ -463,7 +463,7 @@ delete behaviour before the entities exist, or about a barrel file before you
 know how many modules there are. **Ask at each point as it arrives.**
 
 ```bash
-scripts/query.py questions --name <index-name> --path '<source layer>'     --target-path '<generated layer>'
+scripts/query.py questions --path '<source layer>'     --target-path '<generated layer>'
 ```
 
 `questions` ranks what this layer forces by **what it costs to get wrong** — how
@@ -499,7 +499,7 @@ convention in a codebase is the one nothing will ever question.
 That is what `practice` is for:
 
 ```bash
-scripts/query.py practice --name <index> --on <token> --versus <token> [--lang python]
+scripts/query.py practice --on <token> --versus <token> [--lang python]
 ```
 
 It reads the reference corpus, which nothing else does, and answers head to head
@@ -588,7 +588,7 @@ of *reversing* a choice belongs in the question, not in the post-mortem.
 whether anything already declares it:
 
 ```bash
-scripts/query.py deps --name <index> --on '@tanstack/react-query'
+scripts/query.py deps --on '@tanstack/react-query'
 ```
 
 A package the exemplar already carries costs nothing to adopt; one nothing
@@ -675,11 +675,11 @@ output still keeps the contract that produced it, and whether it calls anything
 that does not exist:
 
 ```bash
-scripts/index.py --name <index-name>
-scripts/query.py conform --name <index-name> \
+scripts/index.py
+scripts/query.py conform \
     --repo <source> --path '<source layer>' \
     --target-repo <target> --target-path '<generated layer>'
-scripts/query.py calls --name <index-name> --on <library or base>
+scripts/query.py calls --on <library or base>
 ```
 
 `conform` reports what is ALWAYS true of the source and not of the output. Every
@@ -724,7 +724,7 @@ For rungs 2 and 4, do not ask what the project runs as proof — the repository
 already says:
 
 ```bash
-scripts/query.py proof --name <index-name>
+scripts/query.py proof
 ```
 
 It reports, **per language and including the generated target**: the test
@@ -903,7 +903,7 @@ the nearest layer as a source of conventions instead.
   identical in `shape` and are not the same thing.
   `references/languages.md` holds the mapping, the traps, and how to add one.
 - The index holds facts derived from other people's repositories. It lives in
-  `.data/` beside this file — inside a tracked skill, so it must stay ignored,
+  `.indexes/` beside this file — inside a tracked skill, so it must stay ignored,
   and nothing from it belongs in a tracked file.
 - `MANUAL.md` is written for the person, not for you: what each command answers,
   how to read `shape` output, and what the tool cannot do. Point them at it when
