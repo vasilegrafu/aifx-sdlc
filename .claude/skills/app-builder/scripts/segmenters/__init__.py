@@ -1,7 +1,7 @@
 """The segmenter registry: extension -> the thing that splits it.
 
 A container format is one file holding several languages -- `.vue`, `.svelte`,
-`.razor`. It is not a language and gets no extractor: it is split into spans
+`.razor`, `.ipynb`. It is not a language and gets no extractor: it is split into spans
 here, and each span is read by the extractor that already handles that
 language. Nothing downstream knows a container was involved.
 
@@ -14,9 +14,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import razor, svelte, vue
+from . import notebook, razor, svelte, vue
 
-REGISTRY = (vue, svelte, razor)
+REGISTRY = (vue, svelte, razor, notebook)
 
 BY_EXTENSION = {ext: m for m in REGISTRY for ext in m.EXTENSIONS}
 

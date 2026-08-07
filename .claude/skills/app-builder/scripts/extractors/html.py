@@ -51,6 +51,54 @@ JINJA_IMPORT = re.compile(r'\{%-?\s*(?:import|from)\s+["\']([^"\']+)["\']')
 SCRIPT_SRC = re.compile(r'<script[^>]*\ssrc\s*=\s*["\']([^"\']+)["\']', re.I)
 LINK_HREF = re.compile(r'<link[^>]*\shref\s*=\s*["\']([^"\']+)["\']', re.I)
 
+# Behaviour written as markup. For htmx and Alpine this is not decoration around
+# the logic -- it *is* the logic, and reading a template without it describes a
+# page as static when every interaction on it lives in these attributes.
+#
+# Four spellings, and the leading boundary matters in each: requiring whitespace
+# or `<` before the name stops `xlink:href` and `xmlns:x` matching the `:`
+# shorthand, which would file every SVG in the project as a component with
+# bindings.
+#
+#   hx-get, hx-target      htmx
+#   x-data, x-show         Alpine
+#   @click, @submit.prevent  event shorthand (Alpine, Vue)
+#   :class, :value         binding shorthand
+#
+# `data-hx-*` is htmx's HTML-valid spelling of the same thing and is normalised
+# to the short form, or the same convention would be reported as two.
+DIRECTIVE = re.compile(
+    r'(?:^|[\s<])(data-)?((?:hx|x)-[A-Za-z][\w:.-]*|[@:][A-Za-z][\w:.-]*)'
+    r'\s*=\s*(["\'])(.*?)\3',
+    re.S)
+
+# Values worth recording. An endpoint differs on every page and would make every
+# directive VARIES; a swap strategy or a trigger is drawn from a small set and is
+# a real convention. So the value is kept only when it is short and has no path
+# or template expression in it.
+VALUE_MAX = 24
+
+
+def _directives(text: str) -> list[dict]:
+    """Behaviour attributes, as `{name, value, line}`, first occurrence each.
+
+    Deduplicated by name on purpose. A table with forty rows carrying `@click`
+    is one convention used forty times, and counting it forty times would make a
+    single busy page outweigh every other template in the layer -- the same
+    reason a module is counted once however many classes it holds.
+    """
+    seen: dict[str, dict] = {}
+    for m in DIRECTIVE.finditer(text):
+        name = m.group(2)
+        value = (m.group(4) or "").strip()
+        if name in seen:
+            continue
+        keep = (value if value and len(value) <= VALUE_MAX
+                and not any(c in value for c in "/{}<>\n") else "")
+        seen[name] = {"name": name, "value": keep,
+                      "line": text.count("\n", 0, m.start(2)) + 1}
+    return list(seen.values())
+
 
 def available(root: Path | None = None) -> str | None:
     """Always usable: no toolchain, only the standard library."""
@@ -122,6 +170,7 @@ def extract(files, root, repo, commits):
         includes = INCLUDE.findall(text)
         unresolved = INCLUDE_VAR.findall(text)
         blocks = _blocks(lines)
+        directives = _directives(text)
 
         imports = []
         for mod in parents + includes + JINJA_IMPORT.findall(text):
@@ -144,15 +193,27 @@ def extract(files, root, repo, commits):
 
         # A page with no directives and no assets says nothing worth a record.
         # Static markup is not a convention, and one record per marketing page
-        # would drown the layer that has one.
-        if not (parents or blocks or includes or imports):
+        # would drown the layer that has one. A page carrying htmx or Alpine
+        # behaviour counts even when it inherits nothing and includes nothing --
+        # that behaviour is the reason it exists.
+        if not (parents or blocks or includes or imports or directives):
             continue
 
         yield {
             "k": "class", "lang": LANGUAGE, "repo": repo, "path": relpath,
             "mtime": mtime, "commit": commit, "name": name,
             "bases": list(parents), "keywords": [], "decorators": [],
-            "line": 1, "end": len(lines) or 1, "attrs": [], "assigns": [],
+            "line": 1, "end": len(lines) or 1,
+            # Two fields, and the split is deliberate rather than redundant.
+            # `features()` reads `attrs` for a class and `calls` only for a
+            # function, so `shape` sees each directive exactly once -- while
+            # `practice` and `_mentions`, which read `calls`, can answer "does
+            # anyone still use hx-boost". Recording it in one place would cost
+            # one of those two.
+            "attrs": [{"name": d["name"], "ann": None, "call": d["value"],
+                       "args": [], "kw": []} for d in directives],
+            "calls": [[d["name"], d["line"]] for d in directives],
+            "assigns": [],
             "methods": blocks, "nested": [],
             # Not part of the shared contract, and deliberately kept: absence of
             # evidence must not read as absence of an include.
