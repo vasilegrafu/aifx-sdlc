@@ -35,7 +35,8 @@ from pathlib import Path
 from _common import (SKIP_DIRS, _is_excluded, _is_included,
                      _may_contain_included, _is_skipped_dir,
                      configured_references,
-                     configured_repositories, configured_solution, index_path,
+                     configured_repositories, configured_solution, display_path,
+                     index_path,
                      iter_source_files, load_config, rel, shard_name, workspace)
 from extractors import ALL_EXTENSIONS, REGISTRY, for_path
 import manifests
@@ -382,7 +383,7 @@ def main() -> int:
         if gone:
             print("configured but not found on this machine:", file=sys.stderr)
             for t in gone:
-                print(f"  {t['name']}: {t['path']}", file=sys.stderr)
+                print(f"  {t['name']}: {display_path(t['path'])}", file=sys.stderr)
             targets = [t for t in targets if t["exists"]]
             if not targets:
                 sys.exit("nothing left to index")
@@ -459,7 +460,7 @@ def main() -> int:
                 # truncates, so a repository that is temporarily unreachable --
                 # an unmounted drive, a moved checkout -- would have its records
                 # destroyed rather than left alone.
-                print(f"not a directory, skipped: {root}", file=sys.stderr)
+                print(f"not a directory, skipped: {display_path(root)}", file=sys.stderr)
                 continue
             # One handle per repository, all closed together by the stack. A
             # dozen open files costs nothing, and closing them here rather than
@@ -604,7 +605,7 @@ def main() -> int:
         rebuilt = {t["name"] for t in rebuilding}
         kept = {r: v for r, v in (previous.get("per_repo") or {}).items()
                 if r not in rebuilt and r in {t["name"] for t in targets}}
-        for r, v in kept.items():
+        for v in kept.values():
             files += v.get("files", 0)
             classes += v.get("classes", 0)
             funcs += v.get("funcs", 0)
@@ -621,8 +622,13 @@ def main() -> int:
 
     meta = {
         "name": args.name,
-        "roots": {t["name"]: str(t["path"]) for t in targets},
-        "source": "command line" if args.roots else load_config()["_file"],
+        # Displayed, so stored the way it should be read: relative inside the
+        # checkout, absolute only for what genuinely lives elsewhere. `claims`
+        # below is the opposite case and stays absolute -- it is a filesystem
+        # identity used to tell two repositories apart when a junction makes one
+        # tree reachable through both, and a relative key cannot do that.
+        "roots": {t["name"]: display_path(t["path"]) for t in targets},
+        "source": "command line" if args.roots else display_path(load_config()["_file"]),
         "repos": repos, "target": next((t["name"] for t in targets if t.get("is_target")), None),
         "roles": {t["name"]: t.get("role") or "exemplar" for t in targets},
         "files": files, "classes": classes, "funcs": funcs,
@@ -662,7 +668,7 @@ def main() -> int:
               + "\n  no extractor reads these, so nothing about them is in the"
                 " index -- do not\n  read their absence from `shape` as their"
                 " absence from the codebase.")
-    print(f"{ws}  ({len(shards)} shard(s), {size_mb:.1f} MB,"
+    print(f"{display_path(ws)}  ({len(shards)} shard(s), {size_mb:.1f} MB,"
           f" {meta['seconds']}s)")
     if args.only:
         print(f"  partial: rebuilt {', '.join(sorted(t['name'] for t in rebuilding))};"

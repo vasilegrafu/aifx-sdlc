@@ -1,4 +1,8 @@
-"""Clone the reference codebases named in `config.json` into `.reference_corpus/`.
+"""Clone the reference codebases named in `config.json` into the skill's corpus.
+
+They land in `.claude/skills/app-builder/.reference_corpus/<name>` -- beside the
+skill that reads them, not at the checkout root, so copying the skill elsewhere
+carries both the corpus and the `.gitignore` rule that keeps it untracked.
 
 The corpus is *declared* in config and *materialised* here, so setting up this
 solution on another machine is one command rather than twenty-three manual
@@ -24,7 +28,7 @@ import shutil
 import subprocess
 import sys
 
-from _common import configured_references, corpus_root
+from _common import configured_references, corpus_root, display_path
 
 
 def _git(*args, cwd=None, timeout=1800) -> tuple[int, str]:
@@ -133,7 +137,7 @@ def main(argv=None) -> int:
                 if not args.dry_run:
                     shutil.rmtree(child, ignore_errors=True)
 
-    print(f"\n{len(refs)} reference(s) in {root}"
+    print(f"\n{len(refs)} reference(s) in {display_path(root)}"
           + (f", {failures} failed" if failures else ""))
     if failures:
         print("A missing reference is not fatal -- `practice` will report a"

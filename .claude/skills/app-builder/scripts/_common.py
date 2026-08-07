@@ -98,15 +98,26 @@ CORPUS_DIR = ".reference_corpus"
 
 
 def corpus_root() -> Path:
-    """Where fetched reference codebases live: `.reference_corpus/` at the root.
+    """Where fetched reference codebases live: `<skill>/.reference_corpus/`.
+
+    Inside the skill rather than at the checkout root, for the same reason
+    `.data/` is: it is the skill's working data, so the rule that keeps it out
+    of git travels with the skill instead of being a line in a root
+    `.gitignore` that a different checkout would not have.
 
     Gitignored, and it has to be for a reason beyond size: every clone carries
     its own `.git`, and `git add .` over a directory containing one writes a
     gitlink -- a phantom submodule pointing at a repository nobody can fetch.
-    The leading dot also means `_is_skipped_dir` skips it, so indexing the
-    solution can never wander into twenty other codebases.
+    The leading dot also means `_is_skipped_dir` skips it, so indexing a
+    codebase can never wander into twenty other codebases.
+
+    A sibling of `.data/`, not a directory inside it. They are both derived,
+    but they are not equally disposable: `.data/` rebuilds from local disk in
+    minutes and the documentation says so, while this is gigabytes over the
+    network. Nesting them would make "delete `.data/` and rebuild" quietly
+    mean "re-clone the corpus".
     """
-    return repo_root() / CORPUS_DIR
+    return skill_root() / CORPUS_DIR
 
 
 def _repo_records(entries, role: str) -> list[dict]:
@@ -311,7 +322,7 @@ def read_index(name: str, include_references: bool = False):
     shards = index_shards(name)
     if not shards:
         sys.exit(
-            f"no index named {name!r} at {workspace(name)}\n"
+            f"no index named {name!r} at {display_path(workspace(name))}\n"
             f"build one first:  ./.venv/Scripts/python.exe "
             f".claude/skills/app-builder/scripts/index.py --name {name} <codebase-root>..."
         )
@@ -477,6 +488,27 @@ def iter_py_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = ()):
             except OSError:
                 continue
             yield p
+
+
+def display_path(path) -> str:
+    """A path as it should be printed: relative to the checkout when it is
+    inside it, absolute only when it genuinely is not.
+
+    `D:\\Dev.Work\\aifx-sdlc\\.claude\\skills\\app-builder\\.reference_corpus`
+    tells a reader one useful thing and one useless one. The useful part is the
+    same in every checkout; the prefix is true on one laptop, cannot be pasted
+    into a command by anyone else, and quietly goes stale the moment it is
+    copied into a document -- which is exactly how it got into SETUP.md.
+
+    What lives outside the checkout keeps its absolute path, because there the
+    location *is* the information: an exemplar somewhere else on the disk is
+    only findable by saying where.
+    """
+    p = Path(path)
+    try:
+        return p.resolve().relative_to(repo_root().resolve()).as_posix()
+    except (ValueError, OSError):
+        return str(p)
 
 
 def rel(path: Path, root: Path) -> str:

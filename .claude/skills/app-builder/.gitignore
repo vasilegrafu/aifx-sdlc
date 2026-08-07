@@ -4,6 +4,14 @@
 # rule a blanket `git add .` would publish them.
 .data/
 
+# Reference codebases, cloned by scripts/fetch.py from the URLs in config.json.
+# A sibling of .data/ rather than a directory inside it: both are derived, but
+# .data/ rebuilds offline in minutes and this is gigabytes over the network.
+# It MUST stay ignored for a second reason beyond size -- each clone carries its
+# own .git, and `git add .` over a directory containing .git writes a gitlink, a
+# phantom submodule pointing at a repository nobody can fetch.
+.reference_corpus/
+
 # The C# adapter is built on first use, not shipped.
 scripts/adapters/CsExtract/bin/
 scripts/adapters/CsExtract/obj/

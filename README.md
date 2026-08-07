@@ -62,9 +62,14 @@ paths to codebases on this machine, so it is expected to be wrong on anyone
 else's; a skill reports a configured path as missing rather than failing
 obscurely.
 
-A skill's working data — anything derived from another repository — belongs in
-`<skill>/.data/`, kept out of git by a `.gitignore` inside that skill so the
-rule travels with it. Assume this repository is committed with a blanket
+A skill's working data — anything derived from or copied out of another
+repository — belongs **inside that skill**, kept out of git by a `.gitignore`
+inside it so the rule travels with the skill rather than living in a root file
+another checkout would not have. app-builder keeps two such directories:
+`.data/` for its indexes and `.reference_corpus/` for the codebases it clones.
+Siblings, not nested — both are derived, but one rebuilds offline in minutes and
+the other is gigabytes over the network, and "delete the derived directory"
+must not quietly mean the second one. Assume this repository is committed with a blanket
 `git add .`: no file holding a key, and no copy of someone else's source, may
 ever be trackable, not even briefly.
 

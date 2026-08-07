@@ -39,7 +39,8 @@ import shutil
 from collections import Counter, defaultdict
 
 from _common import (configured_questions, configured_references,
-                     configured_repositories, configured_solution, find_files, load_config, pct,
+                     configured_repositories, configured_solution, corpus_root,
+                     display_path, find_files, load_config, pct,
                      indexed_roles, read_index, skill_root, truncate,
                      workspace)
 
@@ -334,7 +335,7 @@ def markup_technologies_of(rec) -> set[str]:
 def cmd_config(args):
     """What this skill has been pointed at, and whether it is actually there."""
     cfg = load_config()
-    print(f"config  {cfg['_file']}"
+    print(f"config  {display_path(cfg['_file'])}"
           f"{'' if cfg['_exists'] else '   (does not exist)'}\n")
 
     repos = configured_repositories()
@@ -347,11 +348,12 @@ def cmd_config(args):
     else:
         print("EXEMPLARS     what you copy -- their conventions are the contract")
         for r in repos:
-            print(f"  {'ok ' if r['exists'] else 'MISSING'}  {r['name']:<20} {r['path']}")
+            print(f"  {'ok ' if r['exists'] else 'MISSING'}  {r['name']:<20} "
+                  f"{display_path(r['path'])}")
 
     target = configured_solution()
     print(f"\nTARGET        {'ok ' if target['exists'] else 'not built yet'}  "
-          f"{target['name']:<20} {target['path']}")
+          f"{target['name']:<20} {display_path(target['path'])}")
     print("              indexed with the sources; where it has already diverged,"
           "\n              it is the later decision and it wins")
 
@@ -363,8 +365,17 @@ def cmd_config(args):
         print("              evidence about what the wider world does, never a"
               "\n              template. Held out of shape, layers, exemplars,"
               "\n              questions and DISAGREEMENTS; read only by `practice`.")
+        print(f"              under {display_path(corpus_root())}/")
         for r in refs:
-            print(f"  {'ok ' if r['exists'] else 'MISSING'}  {r['name']:<20} {r['path']}")
+            # The path is deliberately not repeated per row. A fetched
+            # reference is located by its name -- the directory *is* the name --
+            # so printing the same prefix twenty-three times says nothing the
+            # header did not. A reference given an explicit `path` instead is
+            # the exception, and only that one shows where it points.
+            elsewhere = ("" if r["path"] == (corpus_root() / r["name"]).resolve()
+                         else f"   {display_path(r['path'])}")
+            print(f"  {'ok ' if r['exists'] else 'MISSING'}  "
+                  f"{r['name'] + elsewhere if elsewhere else r['name']}")
             # Scoping is the difference between evidence about how a library is
             # used and a dump of how it is written, so it is worth seeing here
             # rather than only in the config file.
@@ -558,7 +569,7 @@ def cmd_proof(args):
         if args.repo and repo["name"] != args.repo:
             continue
         label = f"{repo['name']}{'   (the generated target)' if repo.get('is_target') else ''}"
-        print(f"== {label} ==   {repo['path']}\n")
+        print(f"== {label} ==   {display_path(repo['path'])}\n")
         if not repo["exists"]:
             print("  path does not exist on this machine\n")
             continue

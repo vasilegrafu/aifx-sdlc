@@ -122,13 +122,21 @@ own internals. See `.claude/skills/app-builder/references/corpus.md`.
   have      django                 ae25a40be07e
   cloned    realworld              ec8552fee0d0
   ...
-  N reference(s) in D:\...\aifx-sdlc\.reference_corpus
+  N reference(s) in .claude/skills/app-builder/.reference_corpus
 ```
 
-Clones into `.reference_corpus/<name>` — gitignored, disposable, and safe to
-delete and re-fetch. **Budget disk**: a corpus of this kind runs to a couple of
-gigabytes. The first run takes a while on a slow connection, and it is the only
-step that touches the network.
+Paths are printed relative to the checkout, so what you see here is what you
+see there. Only a codebase genuinely outside the checkout — an exemplar
+elsewhere on the disk — is printed absolute, because for those the location is
+the information.
+
+Clones into `.claude/skills/app-builder/.reference_corpus/<name>` — gitignored,
+disposable, and safe to delete and re-fetch. It sits **inside the skill**, next
+to the `.data/` indexes, because it is the skill's working data: copy the skill
+into another checkout and both the corpus and the `.gitignore` rule that keeps
+it untracked go with it. **Budget disk**: a corpus of this kind runs to a couple
+of gigabytes. The first run takes a while on a slow connection, and it is the
+only step that touches the network.
 
 `--update` pulls existing clones, `--prune` removes ones no longer configured,
 `--dry-run` says what it would do. One unreachable URL is reported and the rest

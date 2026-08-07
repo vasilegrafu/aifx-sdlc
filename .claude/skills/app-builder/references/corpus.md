@@ -1,7 +1,7 @@
 # The reference corpus: what is in it, and why each one is there
 
-Declared by URL in `config.json`, fetched into `.reference_corpus/` by
-`scripts/fetch.py`. Gitignored, disposable, and reproducible on any machine.
+Declared by URL in `config.json`, fetched into this skill's `.reference_corpus/`
+by `scripts/fetch.py`. Gitignored, disposable, and reproducible on any machine.
 
 Each entry earns its place in one or both of two ways, and they are worth
 keeping distinct:

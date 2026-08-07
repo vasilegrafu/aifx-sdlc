@@ -49,8 +49,8 @@ Point it at codebases in `config.json`, at the root of this repository:
   holds a layer it **outranks the sources** for that layer: a convention it
   deliberately dropped will not be reintroduced from a source that still has it.
 - **`reference_corpus`** — widely-used codebases indexed as **evidence**, never as
-  templates. Declared by `repo` URL and fetched into `.reference_corpus/<name>`
-  by `scripts/fetch.py`; nothing here is a local path, so the corpus is
+  templates. Declared by `repo` URL and fetched into the skill's own
+  `.reference_corpus/<name>` by `scripts/fetch.py`; nothing here is a local path, so the corpus is
   reproducible on any machine. They answer "is this still how anyone builds it", which one codebase
   cannot. Held out of every command except `practice` -- see "Is this still how
   anyone builds it?" under Recipes for why that matters.
@@ -556,8 +556,10 @@ even when two solutions link to the same library through junctions. `meta` repor
     languages.md           per-language mapping, traps, and how to add one
     decisions.md           decisions a layer faces that the source never made
     alternatives.md        decisions the source made once and never revisited
+    corpus.md              what is in the reference corpus, and why each one
   scripts/
     index.py               build an index
+    fetch.py               clone the reference corpus declared in config.json
     query.py               ask it questions
     smoke.py               check generated Python
     selftest.py            check that the extractors still agree
@@ -569,12 +571,13 @@ even when two solutions link to the same library through junctions. `meta` repor
                            typescript is pinned to 5.x: 7 is the native port and
                            does not expose the API the adapter uses
   node_modules/            those parsers — gitignored; restore with npm install
-    fetch.py               clone the reference corpus declared in config.json
   .data/                   indexes — gitignored, rebuildable, never edited by hand
-
-D:/Dev.Work/aifx-sdlc/
   .reference_corpus/       the reference codebases, cloned by fetch.py —
-                           gitignored, disposable, ~2 GB, restore with fetch.py
+                           gitignored, disposable, restore with fetch.py
 ```
 
 Delete `.data/` any time. It is derived, and `index.py` rebuilds it in seconds.
+Its neighbour `.reference_corpus/` is derived too, and that is exactly why they
+are siblings rather than nested: one comes back from local disk in minutes, the
+other over the network, and "delete the derived directory" must not silently
+mean the second one.

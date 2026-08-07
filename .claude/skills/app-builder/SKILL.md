@@ -141,8 +141,8 @@ So: never move a repository from `reference_corpus` to `exemplar_corpus` to "get
 signal". That is the failure, not the fix.
 
 **A reference is declared by URL and fetched, not by path.** `repo` names the
-upstream; the directory is always `.reference_corpus/<name>`, so the config name
-*is* the directory name and there is nothing to keep in sync. Setting the
+upstream; the directory is always this skill's `.reference_corpus/<name>`, so the
+config name *is* the directory name and there is nothing to keep in sync. Setting the
 solution up elsewhere is one command:
 
 ```bash
@@ -151,9 +151,12 @@ solution up elsewhere is one command:
 
 `fetch.py` is deliberately not part of `index.py`: indexing is local, offline and
 repeatable, and a build that quietly reaches for the network fails differently
-depending on where it runs. `.reference_corpus/` is gitignored and disposable
-like `.data/` -- and must stay so for a second reason, that each clone carries
-its own `.git` and `git add .` over such a directory writes a phantom submodule.
+depending on where it runs. The corpus lives *inside this skill*, beside
+`.data/`, so the rule keeping it out of git travels with the skill rather than
+being a line in a root `.gitignore` another checkout would not have. It is
+gitignored and disposable like `.data/` -- and must stay so for a second reason,
+that each clone carries its own `.git` and `git add .` over such a directory
+writes a phantom submodule.
 
 `exemplar_corpus` and `solution` keep using `path`: they are local by nature.
 
