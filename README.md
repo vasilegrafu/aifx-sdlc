@@ -6,7 +6,10 @@ Skills for Claude Code, and the configuration they share.
 
 `.claude/skills/` holds the skills; `.claude/agents/` is declared and empty.
 `config.json` says which codebases those skills may read and where they build.
-`solution.university/` holds what they generated.
+Whatever `solution` names there holds what they generated -- one solution at a
+time, and which one is not a fact about this repository.
+
+**[SETUP.md](SETUP.md)** is how to get the toolchain working from a clone.
 
 **[app-builder](.claude/skills/app-builder/MANUAL.md)** reads Python,
 TypeScript, JavaScript and C# codebases through a structural index — what a
@@ -25,23 +28,32 @@ There is no build and no test runner. Do not describe one here before it exists.
 One venv at the root, built from one `requirements.txt`, serving both the skills
 and what they generate.
 
-Nothing in `requirements.txt` is needed by a skill. Every skill imports nothing
-but the standard library, deliberately — that is what lets one be copied into
-another checkout and still work. The dependencies are there for
-`solution.university/`, and some of them are not even its choices: `devfx` is
-linked in as a junction rather than installed, so it brings no metadata with it
-and what it imports has to be declared by hand.
+Nothing in `requirements.txt` is needed by a skill *in Python*. Every skill
+imports nothing but the standard library, deliberately — that is what lets one
+be copied into another checkout and still work. The dependencies are there for
+the solution under development, and some of them are not even its choices: a
+library linked in by junction rather than installed brings no metadata with it,
+so what it imports has to be declared by hand.
+
+The Node side is different and easy to miss: app-builder carries its own `acorn`
+and `typescript`, installed with `npm install` inside the skill. Reading a
+codebase must not require having built it, so the parsers live with the reader
+rather than with the read. See [SETUP.md](SETUP.md).
 
 The venv is not tracked. Rebuild it with `python -m venv .venv` and
 `pip install -r requirements.txt`.
 
 ## Tests
 
-```bash
-./.venv/Scripts/python.exe -m pytest solution.university
-```
+A solution's tests are that solution's business — run them from it, the way it
+says. What holds generally is that they create whatever they need and refuse to
+start against anything they did not create.
 
-They run against their own database and refuse to start if pointed at any other.
+The skill has its own check, which needs no solution at all:
+
+```bash
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/selftest.py
+```
 
 ## Configuration
 

@@ -4,9 +4,14 @@
 #   .venv\Scripts\activate        (Windows)   |   source .venv/bin/activate
 #   pip install -r requirements.txt
 #
-# The skills under .claude/skills/ need none of it. They import nothing but the
-# standard library, deliberately: that is what lets one be copied into another
-# checkout and still work. Everything below exists to run what they generate.
+# The skills under .claude/skills/ need none of it *in Python*. They import
+# nothing but the standard library, deliberately: that is what lets one be
+# copied into another checkout and still work. Everything below exists to run
+# what they generate, and changes when the solution does.
+#
+# The Node side is not covered here. app-builder reads JavaScript and TypeScript
+# with its own acorn and typescript, installed by `npm install` inside the skill
+# -- see SETUP.md. Skipping that step does not fail loudly enough to notice.
 
 SQLAlchemy>=2.0
 pytest>=8.0
