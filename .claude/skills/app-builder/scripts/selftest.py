@@ -97,6 +97,9 @@ export function helper(n) { return String(n); }
 {% block content %}
   {% include "widgets/helper.html" %}
   {% blocktranslate %}not a block{% endblocktranslate %}
+  <button hx-post="/save" hx-swap="outerHTML" @click="open = !open">Go</button>
+  <img data-hx-get="/thumb" alt="normalised to hx-get">
+  <svg><use xlink:href="#icon"/></svg>
 {% endblock %}
 '''),
     # A stylesheet, held to the same contract: `@extend` is a base, `@mixin` a
@@ -181,6 +184,28 @@ def check(language, extractor, root: Path) -> list[str]:
                 problems.append(f"{language}: import missing "
                                 f"{sorted(IMPORT_KEYS - set(i))}")
                 break
+
+    # htmx and Alpine put an application's behaviour in attributes. Reading a
+    # template without them describes an interactive page as static, so the
+    # mapping is asserted rather than assumed: name in `attrs` for `shape`, and
+    # in `calls` for `practice`, with the two spellings that are easy to get
+    # wrong -- `data-hx-get` is the same convention as `hx-get`, and
+    # `xlink:href` is not a binding however much it looks like one.
+    if language == "html":
+        cls = next((r for r in records if r.get("k") == "class"), None)
+        names = {a["name"] for a in (cls or {}).get("attrs", ())}
+        called = {c[0] for c in (cls or {}).get("calls", ())}
+        for want in ("hx-post", "hx-swap", "@click", "hx-get"):
+            if want not in names:
+                problems.append(f"html: directive {want!r} not in attrs; got {sorted(names)}")
+            if want not in called:
+                problems.append(f"html: directive {want!r} not in calls")
+        if any(n.startswith("xlink") or n == ":href" for n in names):
+            problems.append("html: an XML namespace was read as a binding")
+        swap = next((a["call"] for a in (cls or {}).get("attrs", ())
+                     if a["name"] == "hx-swap"), None)
+        if swap != "outerHTML":
+            problems.append(f"html: hx-swap value not kept, got {swap!r}")
 
     if "module" not in kinds:
         problems.append(f"{language}: emitted no module record")
@@ -335,6 +360,43 @@ export function widgetHelper(n) {
 }
 
 
+# Built rather than written out, because a notebook fixture is JSON containing
+# escaped source and hand-writing one is how you get a test that passes for the
+# wrong reason. The layout is deliberate: a markdown cell contributes height but
+# no code, a magic and a shell escape must be blanked rather than removed, and
+# an output that looks like an import must not be read. `summarise` then sits on
+# a line that only holds if all four are handled.
+def _notebook_fixture() -> tuple[str, int]:
+    import json as _json
+    nl = "\n"
+    nb = {
+        "metadata": {"language_info": {"name": "python"}},
+        "cells": [
+            {"cell_type": "markdown",
+             "source": ["# Title" + nl, "prose" + nl]},
+            {"cell_type": "code",
+             "source": ["%matplotlib inline" + nl,
+                        "import pandas as pd" + nl,
+                        "import numpy as np" + nl],
+             "outputs": [{"text": ["import must_not_be_read" + nl]}]},
+            {"cell_type": "code",
+             "source": ["!pip install scipy" + nl,
+                        "df = pd.DataFrame()" + nl,
+                        "df.head?" + nl,
+                        "def summarise(frame):" + nl,
+                        "    return frame.describe()" + nl]},
+        ],
+    }
+    #  1 markdown   2 markdown   3 boundary
+    #  4 %magic     5 import     6 import     7 boundary
+    #  8 !shell     9 df=       10 df.head?  11 def summarise
+    return _json.dumps(nb), 11
+
+
+CONTAINERS["notebook"] = ("fixture.ipynb", _notebook_fixture()[0],
+                          "summarise", _notebook_fixture()[1])
+
+
 def check_container(fmt: str, root: Path) -> list[str]:
     """Segment a fixture, extract it, and assert the line survives the trip."""
     import index as index_module
@@ -377,6 +439,160 @@ def check_container(fmt: str, root: Path) -> list[str]:
     return problems
 
 
+# ---------------------------------------------------------------- queries
+
+
+QUERY_INDEX = "_selftest"
+
+
+def _module(repo, path, imports, when):
+    return {"k": "module", "lang": "python", "repo": repo, "path": path,
+            "pkg": "", "dir": path.rsplit("/", 1)[0] if "/" in path else "",
+            "loc": 10, "mtime": when, "commit": when, "main": False,
+            "exports": [], "imports": [{"mod": m, "name": None, "as": None}
+                                       for m in imports]}
+
+
+def _class(repo, path, name, when):
+    return {"k": "class", "lang": "python", "repo": repo, "path": path,
+            "mtime": when, "commit": when, "name": name, "bases": ["Base"],
+            "keywords": [], "decorators": [], "line": 1, "end": 9,
+            "attrs": [{"name": "id", "ann": "int", "call": "", "args": [], "kw": []}],
+            "assigns": [], "methods": [], "nested": []}
+
+
+def build_query_fixture() -> Path:
+    """A tiny index with all three roles, written straight to the workspace.
+
+    Synthetic rather than derived from a real codebase on purpose: these checks
+    are about *invariants that must hold whatever is indexed*, and a fixture
+    that can be reasoned about completely is the only way to assert them
+    exactly. `ex` is the exemplar, `ref` the reference, `tgt` the target.
+
+    Dates are chosen so `practice` has a fossil to find: `ex` last touched
+    `oldlib` well over a year before it last touched `newlib`, which is the
+    condition its AGEING branch tests for and which nothing else exercises.
+    """
+    import json
+    import time
+
+    from _common import workspace
+
+    now = int(time.time())
+    two_years = now - 2 * 365 * 24 * 3600
+    ws = workspace(QUERY_INDEX)
+    ws.mkdir(parents=True, exist_ok=True)
+
+    records = [
+        # exemplar: uses both, but its oldlib modules are ancient
+        _module("ex", "app/a.py", ["oldlib"], two_years),
+        _module("ex", "app/b.py", ["oldlib"], two_years),
+        _module("ex", "app/c.py", ["newlib"], now),
+        # deep import, and a near-miss that must not be claimed by it
+        _module("ex", "app/d.py", ["newlib/sub/thing"], now),
+        _module("ex", "app/e.py", ["newlib-other"], now),
+        _class("ex", "app/models/One.py", "One", now),
+        # reference: unanimously the new way, and far larger
+        _module("ref", "src/x.py", ["newlib"], now),
+        _module("ref", "src/y.py", ["newlib"], now),
+        _module("ref", "src/z.py", ["newlib"], now),
+        _class("ref", "src/models/Ref1.py", "Ref1", now),
+        _class("ref", "src/models/Ref2.py", "Ref2", now),
+        _class("ref", "src/models/Ref3.py", "Ref3", now),
+        # target
+        _class("tgt", "app/models/Two.py", "Two", now),
+        # manifests
+        {"k": "manifest", "repo": "ex", "path": "package.json", "mtime": now,
+         "commit": 0, "ecosystem": "npm", "deps": {"leftpad": "^1.0.0"},
+         "dev_deps": {}, "scripts": {"build": "tsc"}},
+    ]
+    (ws / "index.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
+    (ws / "meta.json").write_text(json.dumps({
+        "name": QUERY_INDEX, "roles": {"ex": "exemplar", "ref": "reference",
+                                       "tgt": "target"},
+        "repos": ["ex", "ref", "tgt"], "target": "tgt", "shallow": [],
+    }) + "\n", encoding="utf-8")
+    return ws
+
+
+def run_query(*argv) -> str:
+    import io
+    import contextlib
+    import query
+
+    buf = io.StringIO()
+    # `--name` belongs to each subcommand, not to the parser, so the command
+    # has to come first.
+    argv = [argv[0], "--name", QUERY_INDEX, *argv[1:]]
+    try:
+        with contextlib.redirect_stdout(buf):
+            query.main(argv)
+    except SystemExit as exc:
+        # argparse exits 2 on a usage error and prints to stderr, so the check
+        # above it would otherwise see empty output and report a wrong verdict
+        # rather than a broken call.
+        if exc.code not in (0, None):
+            return f"{buf.getvalue()}\n<command failed: {' '.join(argv)}>"
+    return buf.getvalue()
+
+
+def check_queries() -> list[str]:
+    """The invariants no extractor test can reach.
+
+    The first two matter most. A reference codebase leaking into a contract
+    computation is silent, plausible-looking, and wrong in exactly the way this
+    whole skill exists to prevent -- and it is one keyword argument away at all
+    times.
+    """
+    bad = []
+
+    out = run_query("shape", "--path", "*/models/*")
+    if "ref" in out or "Ref1" in out:
+        bad.append("shape: a reference repository reached a contract computation")
+    if "One" not in out and "2 classes" not in out and "ex" not in out:
+        bad.append(f"shape: expected the exemplar's classes, got:\n{out}")
+
+    out = run_query("layers")
+    if "ref/" in out:
+        bad.append("layers: a reference repository was listed as a layer")
+
+    out = run_query("layers", "--lang", "python")
+    if "app" not in out:
+        bad.append("layers --lang: filtered everything out")
+
+    out = run_query("practice", "--on", "oldlib", "--versus", "newlib")
+    if "ref" not in out:
+        bad.append("practice: did not read the reference corpus, which is its whole job")
+    if "corpus favours   newlib" not in out:
+        bad.append(f"practice: wrong corpus verdict:\n{out}")
+    if "DISAGREES" not in out:
+        bad.append(f"practice: exemplar disagrees with the corpus and it was not said:\n{out}")
+    if "AGEING" not in out:
+        bad.append(f"practice: a two-year-old convention did not trigger AGEING:\n{out}")
+
+    # app/c.py imports `newlib` directly and app/d.py imports `newlib/sub/thing`.
+    # Both are uses of the package: matching only whole specifiers reported
+    # MUI's own demo gallery as 6 modules when it was 745. app/e.py imports
+    # `newlib-other`, a different package, which the prefix must not claim --
+    # without the separator, `react` would swallow `react-dom`.
+    out = run_query("practice", "--on", "newlib")
+    hits = [ln for ln in out.splitlines() if ln.strip().startswith("ex ")]
+    if not hits or hits[0].split()[1] != "2":
+        bad.append("practice: expected 2 modules for newlib (one direct, one "
+                   f"subpath), got:{chr(10)}{out}")
+
+    out = run_query("deps", "--on", "leftpad")
+    if "^1.0.0" not in out:
+        bad.append(f"deps --on: did not find a declared package:\n{out}")
+
+    out = run_query("deps", "--repo", "tgt")
+    if "declares no dependencies" not in out:
+        bad.append(f"deps: a repo with no manifest should say so, not blame the index:\n{out}")
+
+    return bad
+
+
 def main() -> int:
     root = Path(tempfile.mkdtemp(prefix="app-builder-selftest-"))
     failures, skipped = [], []
@@ -404,6 +620,18 @@ def main() -> int:
             for p in problems:
                 print(f"       {p}")
             failures += problems
+        ws = None
+        try:
+            ws = build_query_fixture()
+            problems = check_queries()
+            print(f"  {'FAIL' if problems else 'ok  '} {'queries':<12} "
+                  f"roles, practice, deps, layers --lang")
+            for p in problems:
+                print(f"       {p}")
+            failures += problems
+        finally:
+            if ws is not None:
+                shutil.rmtree(ws, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
