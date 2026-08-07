@@ -32,9 +32,22 @@ ENV_OVERRIDE = "APP_BUILDER_ACORN"
 PARSER_RELATIVE_PATH = "node_modules/acorn/dist/acorn.mjs"
 JSX_RELATIVE_PATH = "node_modules/acorn-jsx/index.js"
 
+# The skill's own install, declared in its package.json and the last place
+# looked. Reading a codebase must not require having built it: the Python
+# extractor parses with the standard library and needs no virtualenv, and
+# requiring `npm install` in the *indexed* repository made JS and TS the only
+# languages this skill could not read from a fresh checkout. The failure was
+# silent and total -- every file in a repository without node_modules collapsed
+# into one `unparsed` record, so a corpus of nine JavaScript projects reported
+# almost no JavaScript, and absent evidence read as absent convention.
+#
+# A repository's own acorn still wins when it has one: matching the parser the
+# project itself uses is worth more than consistency across repositories.
+SKILL_PARSER_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _find(start: Path, relative: str) -> Path | None:
-    for directory in [start, *start.parents]:
+    for directory in [start, *start.parents, SKILL_PARSER_ROOT]:
         candidate = directory.joinpath(*relative.split("/"))
         if candidate.is_file():
             return candidate
@@ -69,6 +82,17 @@ def available(root: Path | None = None) -> str | None:
         return "node is not on PATH"
     if not ADAPTER.is_file():
         return f"adapter missing: {ADAPTER}"
+    # A missing parser used to be reported per file, inside an `unparsed`
+    # record, which is the one place nothing looks -- the index says "do not
+    # read this file". So a fresh checkout that had not run `npm install`
+    # indexed a JavaScript project as having almost no JavaScript, with the
+    # explanation sitting where no one would see it. Saying it here routes it
+    # through the same skip-and-report path as a missing toolchain, which is
+    # what it is.
+    if find_parser(SKILL_PARSER_ROOT) is None and (root is None
+                                                   or find_parser(root) is None):
+        return (f"acorn not found -- run `npm install` in {SKILL_PARSER_ROOT}, "
+                f"or set {ENV_OVERRIDE}")
     return None
 
 

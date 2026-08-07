@@ -6,3 +6,14 @@ __pycache__/
 
 
 
+
+# The skill installs acorn to read JS/TS. package.json and the lockfile
+# are tracked so the dependency is declared; the tree itself is not.
+node_modules/
+
+# Reference codebases, cloned by scripts/fetch.py from the URLs in config.json.
+# Derived and disposable like .data/ -- but this one MUST stay ignored for a
+# second reason: each clone carries its own .git, and `git add .` over a
+# directory containing .git writes a gitlink, a phantom submodule pointing at a
+# repository nobody can fetch.
+.reference_corpus/

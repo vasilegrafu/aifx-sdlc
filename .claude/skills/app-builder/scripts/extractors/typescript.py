@@ -33,6 +33,19 @@ ADAPTER = Path(__file__).resolve().parents[1] / "adapters" / "ts_extract.mjs"
 ENV_OVERRIDE = "APP_BUILDER_TYPESCRIPT"
 PARSER_RELATIVE_PATH = "node_modules/typescript/lib/typescript.js"
 
+# The skill's own install, and the last place looked. See the note in
+# `javascript.py`: requiring `npm install` in the *indexed* repository made JS
+# and TS the only languages this skill could not read from a fresh checkout, and
+# it failed silently -- files with no compiler above them collapse into one
+# `unparsed` record rather than erroring.
+#
+# Pinned to the 5.x line in package.json, deliberately. TypeScript 7 is the
+# native port: its package has no `lib/typescript.js` and does not expose
+# `ts.createSourceFile`, which `adapters/ts_extract.mjs` is written against. An
+# unpinned upgrade would find no compiler and read as a codebase with no
+# TypeScript in it.
+SKILL_PARSER_ROOT = Path(__file__).resolve().parents[2]
+
 
 def find_typescript(start: Path) -> Path | None:
     """The nearest installed `typescript`, walking up from the source.
@@ -44,7 +57,7 @@ def find_typescript(start: Path) -> Path | None:
     override = os.environ.get(ENV_OVERRIDE)
     if override and Path(override).is_file():
         return Path(override)
-    for directory in [start, *start.parents]:
+    for directory in [start, *start.parents, SKILL_PARSER_ROOT]:
         candidate = directory / "node_modules" / "typescript" / "lib" / "typescript.js"
         if candidate.is_file():
             return candidate
@@ -63,6 +76,13 @@ def available(root: Path | None = None) -> str | None:
         return "node is not on PATH"
     if not ADAPTER.is_file():
         return f"adapter missing: {ADAPTER}"
+    # See the note in `javascript.py`: a missing compiler was reported only
+    # inside an `unparsed` record, so a checkout that had not run `npm install`
+    # read as a codebase with no TypeScript in it.
+    if find_typescript(SKILL_PARSER_ROOT) is None and (root is None
+                                                       or find_typescript(root) is None):
+        return (f"typescript not found -- run `npm install` in "
+                f"{SKILL_PARSER_ROOT}, or set {ENV_OVERRIDE}")
     return None
 
 

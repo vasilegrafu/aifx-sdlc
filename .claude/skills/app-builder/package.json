@@ -1,0 +1,10 @@
+{
+  "name": "app-builder-parsers",
+  "private": true,
+  "description": "Parsers the skill uses to read JavaScript and TypeScript. Installed here, not in the indexed repository: reading a codebase must not require having built it. typescript is pinned to 5.x because TypeScript 7 is the native port and does not expose the createSourceFile API adapters/ts_extract.mjs uses.",
+  "dependencies": {
+    "acorn": "^8.18.0",
+    "acorn-jsx": "^5.3.2",
+    "typescript": "^5.9.3"
+  }
+}
