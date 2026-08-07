@@ -34,6 +34,14 @@ Two failures this prevents, both paid for:
   It was rejected for that reason. MUI ships every demo as both `.tsx` and
   `.js`, so MUI queries need `--lang typescript`.
 
+`Netflix/dispatch` was measured and rejected for both reasons at once. It is a
+real production application, which is what made it tempting — but it declares
+with `Column()` in 75 modules and `mapped_column` in none, so adding it to close
+the SQLAlchemy 2.0 gap would have argued *against* the idiom the gap is about.
+Its 161 alembic hits are migration files: one project's opinion amplified 161×,
+which would have owned every alembic verdict outright. A candidate that would
+move a verdict is exactly the one to measure before adding, not after.
+
 ## What each one is for
 
 | Reference | include | Evidence for | Also validates |
@@ -43,6 +51,7 @@ Two failures this prevents, both paid for:
 | `flask` | `examples`, `src` | a third Python data point | Jinja templates |
 | `fastapi-fullstack` | `backend`, `frontend` | a real FastAPI + SQLModel + Alembic application | the only migrations evidence |
 | `sqlalchemy-examples` | `examples` | ORM patterns — inheritance, associations, async | 2.0 `Mapped[...]` beside legacy `Column()` |
+| `litestar-fullstack` | `src/py` | the only SQLAlchemy **2.0 application** — 92% `mapped_column` | a second alembic source |
 | `pydata-handbook` | `notebooks` | pandas, numpy, scipy idiom | `.ipynb` segmentation |
 | `pytorch-examples` | — | PyTorch training scripts | — |
 | `keras-io` | `examples`, `guides` | Keras and TensorFlow usage | 200 `.py` files, no notebooks needed |
@@ -75,10 +84,33 @@ Two failures this prevents, both paid for:
 
 ## Known gaps
 
-- **No SQLAlchemy 2.0 application.** `fastapi-fullstack` uses SQLModel, a
-  wrapper; session and relationship idiom transfers, `Mapped[...] =
-  mapped_column(...)` declaration does not.
-- **Alpine is thin** — 10 pages. Most Alpine usage lives inside JavaScript test
-  strings, which are not readable as HTML.
-- **Alembic is one source.** Its own repository is library internals; migration
-  usage lives in user projects, so only `fastapi-fullstack` supplies it.
+Measured, not remembered. Re-run the query before quoting any of this.
+
+- **The SQLAlchemy 2.0 aggregate is misleading — read the rows, not the
+  verdict.** `practice --on mapped_column --versus Column --lang python` reports
+  *corpus favours Column* at 30 to 32. That aggregate is not about applications:
+  `sqlalchemy-examples` is the library's own teaching material and keeps legacy
+  `Column()` examples deliberately, for the people migrating. The only
+  application in the corpus, `litestar-fullstack`, is 92% `mapped_column`.
+
+  This was worse before that application was added — 18 to 31 from a single
+  source — and the fix was to add evidence, not to re-scope `sqlalchemy-examples`
+  until the number came out right. One more 2.0 application would flip the
+  aggregate, and that is a reason to keep looking, not a reason to go shopping:
+  a corpus curated until it agrees with you is not evidence about anything.
+
+- **Alembic is thin: two sources, 6 modules and 2.** Its own repository is
+  library internals, and migration usage lives in user projects. Two is not a
+  corpus — the guidance about quoting a verdict without reading how many
+  codebases produced it applies to every alembic answer here.
+
+- **Alpine cannot be closed by adding repositories, and that is the finding.**
+  `x-data` appears in **11 `.html` files across the entire corpus** and in
+  **126 `.md` files**. The evidence exists; it is written in Markdown prose and
+  inside JavaScript test strings, and this skill reads neither as markup —
+  `.md` is in `NOT_A_LANGUAGE` on purpose. Another Alpine project would land in
+  the same place, because that is how Alpine is documented and demonstrated.
+  Closing it means reading fenced HTML blocks out of Markdown, which is a
+  change to the extractors, not to this file. Until then, treat every Alpine
+  verdict as unusable rather than thin: `x-data 2, x-on 0`, dated 2022, is not
+  a small sample of the truth but a measurement of the wrong thing.

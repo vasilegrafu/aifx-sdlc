@@ -102,6 +102,13 @@
         ]
       },
       {
+        "name": "litestar-fullstack",
+        "repo": "https://github.com/litestar-org/litestar-fullstack.git",
+        "include": [
+          "src/py"
+        ]
+      },
+      {
         "name": "mui-demos",
         "repo": "https://github.com/mui/material-ui.git",
         "include": [
