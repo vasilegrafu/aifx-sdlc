@@ -375,7 +375,8 @@ def cmd_config(args):
     else:
         print("\nREFERENCES    none configured -- every claim about what is or is not"
               "\n              current practice is then an assertion, not evidence."
-              '\n              Add them under "references": [{"name": ..., "path": ...}]')
+              '\n              Add them under "reference_corpus": [{"name": ..., "repo": ...}]'
+              '\n              then fetch them:  scripts/fetch.py')
 
     mode = configured_questions()
     explain = {

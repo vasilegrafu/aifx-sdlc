@@ -1,6 +1,6 @@
 {
   "app-builder": {
-    "references": [
+    "reference_corpus": [
       {
         "name": "django",
         "repo": "https://github.com/django/django.git",

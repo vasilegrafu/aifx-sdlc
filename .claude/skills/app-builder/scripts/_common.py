@@ -166,7 +166,15 @@ def configured_references() -> list[dict]:
     two exemplars, at nine times the scale. `read_index` filters them out
     everywhere; `practice` opts back in, and is the only thing that does.
     """
-    return _repo_records(load_config().get("references"), "reference")
+    cfg = load_config()
+    # `references` was the earlier spelling, kept working on purpose: renaming a
+    # config key should not silently empty the corpus, and an empty corpus is
+    # the failure that looks like an answer -- `practice` would report a smaller
+    # world rather than an error.
+    entries = cfg.get("reference_corpus")
+    if entries is None:
+        entries = cfg.get("references")
+    return _repo_records(entries, "reference")
 
 
 def configured_solution() -> dict:

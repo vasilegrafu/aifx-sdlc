@@ -78,7 +78,7 @@ paths that are already there.
     "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
     "solution": "solution.university",
     "questions": "many",
-    "references": [{ "name": "django", "repo": "https://github.com/django/django.git" }]
+    "reference_corpus": [{ "name": "django", "repo": "https://github.com/django/django.git" }]
   }
 }
 ```
@@ -89,7 +89,7 @@ paths that are already there.
 |---|---|---|
 | exemplar | `repositories` | what you copy — its conventions are the contract |
 | target | `solution` | what you build — the later decision, and it wins |
-| reference | `references` | what you consult — what the wider world does, and when |
+| reference | `reference_corpus` | what you consult — what the wider world does, and when |
 
 `questions` is a **policy**, not a count: `many` asks at every genuine decision
 point as the work reaches it, `key` asks only what is expensive to reverse,
@@ -137,7 +137,7 @@ exemplars, at nine times the scale. Measured, not assumed: `shape --path
 django let in. 652 of those are django's. Every ALWAYS row would have described
 a codebase nobody asked to copy.
 
-So: never move a repository from `references` to `repositories` to "get more
+So: never move a repository from `reference_corpus` to `repositories` to "get more
 signal". That is the failure, not the fix.
 
 **A reference is declared by URL and fetched, not by path.** `repo` names the

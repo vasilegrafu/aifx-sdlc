@@ -37,7 +37,7 @@ Point it at codebases in `config.json`, at the root of this repository:
     ],
     "solution": "solution.university",
     "questions": "many",
-    "references": [
+    "reference_corpus": [
       { "name": "django", "repo": "https://github.com/django/django.git" }
     ]
   }
@@ -48,7 +48,7 @@ Point it at codebases in `config.json`, at the root of this repository:
 - **`solution`** — where generated code is built. It is indexed too, and once it
   holds a layer it **outranks the sources** for that layer: a convention it
   deliberately dropped will not be reintroduced from a source that still has it.
-- **`references`** — widely-used codebases indexed as **evidence**, never as
+- **`reference_corpus`** — widely-used codebases indexed as **evidence**, never as
   templates. Declared by `repo` URL and fetched into `.reference_corpus/<name>`
   by `scripts/fetch.py`; nothing here is a local path, so the corpus is
   reproducible on any machine. They answer "is this still how anyone builds it", which one codebase
@@ -341,7 +341,7 @@ survives only in files nobody has touched for over a year.
 `AGEING` answers that within one codebase. It cannot tell you the codebase is
 uniformly behind, because a convention nothing disagrees with produces no
 `VARIES` row and no question at all — the most embedded choice is the one nothing
-raises. That needs a second opinion, which is what the `references` in
+raises. That needs a second opinion, which is what the `reference_corpus` in
 `config.json` are: widely-used codebases indexed as **evidence**, never as
 templates.
 
