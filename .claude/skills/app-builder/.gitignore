@@ -2,11 +2,22 @@
 # decisions taken about them. Derived facts about someone else's code are still
 # their code -- and this directory sits inside a tracked skill, so without this
 # rule a blanket `git add .` would publish them.
-.data/
+.indexes/
+
+# The parsers: acorn and typescript, installed here so reading a JS/TS codebase
+# never requires having built it. package.json and the lockfile are tracked so
+# the dependency is declared; the 118 files of someone else's source are not.
+#
+# The root .gitignore also covers this, and that is not a reason to leave it
+# out. A rule about the skill that lives outside the skill is a rule the skill
+# loses the moment it is copied into a checkout that does not have it -- and
+# the first `git add .` there commits a vendored copy of TypeScript.
+node_modules/
 
 # Reference codebases, cloned by scripts/fetch.py from the URLs in config.json.
-# A sibling of .data/ rather than a directory inside it: both are derived, but
-# .data/ rebuilds offline in minutes and this is gigabytes over the network.
+# A sibling of .indexes/ rather than a directory inside it: both are derived,
+# but .indexes/ rebuilds offline in minutes and this is gigabytes over the
+# network.
 # It MUST stay ignored for a second reason beyond size -- each clone carries its
 # own .git, and `git add .` over a directory containing .git writes a gitlink, a
 # phantom submodule pointing at a repository nobody can fetch.

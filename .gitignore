@@ -4,9 +4,3 @@ __pycache__/
 
 .venv/
 
-
-
-
-# The skill installs acorn to read JS/TS. package.json and the lockfile
-# are tracked so the dependency is declared; the tree itself is not.
-node_modules/
