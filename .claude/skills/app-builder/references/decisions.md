@@ -10,6 +10,17 @@ That third case is what this file is for. It is a checklist of decisions each
 kind of layer normally faces, so that an absence in the source becomes a
 question to the user instead of an invisible default.
 
+The second case — done one way, always, and reproduced in silence — is the
+mirror image, and it has its own file: `alternatives.md`. Keep them apart. An
+absence is raised because nothing in the index can raise it; a unanimous
+convention is challenged only on evidence, and the default there is to reproduce
+it faithfully.
+
+The last section covers **cross-cutting dimensions** — logging, auth, CI,
+deployment — which belong to the application rather than to any layer, and which
+the index can answer only partly. That section says which is which, and it is
+worth reading before claiming to have checked one of them.
+
 ## The rule this changes, and the rule it does not
 
 `generating.md` says **do not improve the exemplar**, and that stays — it was
@@ -80,10 +91,47 @@ destroyed four years of academic records is not recoverable at all.
 
 ---
 
+## Cross-cutting dimensions
+
+The tables above are per layer. These are not — they belong to the application,
+they are decided once, and they are almost always decided by **omission**,
+because nothing in a request for "a web API" mentions logging.
+
+They also differ from everything else here in how much the index can help, and
+being precise about that is the point of the middle column. Do not claim to have
+checked something the index cannot see.
+
+| Dimension | Can the index answer it? | Why it is worth raising |
+|---|---|---|
+| **Error handling** | **Yes** — `find --symbol 'Error$'`, and `practice --on <ExceptionName>` | atlas carries a whole hierarchy under `devfx/exceptions/` — `ApplicationError`, `ArgumentError`, `OperationError`. A generated layer that raises bare `Exception` has silently left the source's contract, and `conform` will not say so because exceptions are not class features. |
+| **Logging** | **Yes** — `practice --on logging --versus structlog` | Measured on this index: the reference corpus uses `logging` in 52 modules; **atlas and the target use neither, anywhere**. That is an absence with no index record of its own, and the first production incident is when anyone notices. |
+| **Authentication** | **Yes** — `shape --kind func` and read `DECORATORS` | Measured: `solution.school/webapi` shows `app.post 71%`, `route_wrapper 71%`, and no auth decorator at all. An API with no authentication is a decision; it should be one someone made. |
+| **Configuration** | **Partly** — config *modules* are indexed; `.json`/`.env` values are not | Where configuration is read decides whether the app runs from anywhere. See `generating.md` on working from one directory. |
+| **Test strategy** | **Partly** — `proof` finds test config, test directories and the interpreter | It cannot tell you whether the tests are any good, only that they exist and how they are run. |
+| **Dependency management** | **No** — 0 manifests indexed; `requirements.txt`, `pyproject.toml`, `package.json` are not source | Every new dependency an option implies must be named in the option itself. Nothing will catch it later. |
+| **Build / packaging** | **No** | — |
+| **Deployment, CI/CD** | **No** — 0 files; `.github/workflows`, Dockerfiles and YAML are not indexed at all | Generated code that no pipeline builds is not deployed, and nothing in this skill will notice. |
+| **Observability** | **No** — metrics and tracing are configuration, not structure | Distinct from logging: logs say what happened once, metrics say how often. Raise only if scale or operability came up in the brief. |
+| **Documentation** | **No** | A README is usually the honest deliverable, not a plan. |
+
+**Raise these against the brief, not as a list.** The step 1 answers decide
+almost all of them: a prototype maintained by its author needs none of CI,
+observability or a documented public surface, and saying so once is better than
+six questions. A system with a five-year life and a team needs most of them, and
+then they are cheap to add now and expensive later.
+
+The three at the bottom of the table share a property worth stating plainly:
+**this skill cannot see them, so it cannot check them, and it must not imply it
+has.** Saying "I have not looked at how this is deployed, because nothing about
+deployment is in the index" costs one sentence and is the difference between a
+gap the user knows about and one they do not.
+
+---
+
 ## What this file is not
 
 It is not a standard, and following every row would produce a heavier
 application than most requests deserve. It is a list of questions worth
 *asking*, ranked against what was actually requested — nothing more. The answer
 "no, atlas does not do that and neither should we" is a perfectly good one, and
-should be recorded in the report at step 9 like any other choice.
+should be recorded in the report at step 10 like any other choice.

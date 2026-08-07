@@ -14,6 +14,38 @@ The whole method rests on one distinction:
 > What **varies** is an **axis of choice** — decide it deliberately.
 > What one codebase always does and another never does is a **disagreement** —
 > ask. Do not average.
+> What is always true and no longer how anyone builds this is a **fossil** —
+> say so, and let the user choose.
+
+That fourth line is newer than the other three and pulls against them, so be
+clear about what it does and does not license.
+
+`ALWAYS` is the **strongest available evidence of intent** — someone chose it,
+every file agrees, and departing from it breaks callers you have not read. It is
+the default, and it stays the default. What it is *not* is proof of
+correctness. A convention is unanimous in a codebase for two very different
+reasons: it is right, or it was decided once and nothing has revisited it since.
+The index cannot tell those apart, and neither can a percentage.
+
+This matters because of an asymmetry that is easy to miss: **the strongest
+convention in a codebase is the one nothing will ever question.** `questions`
+ranks forks, and a fork needs disagreement; something the exemplar is unanimous
+about produces no fork, no row, and no question. So the choices most deeply
+embedded in a codebase are exactly the ones that get reproduced without anyone
+noticing there was a choice.
+
+Three rules keep that from becoming licence to rewrite whatever you dislike:
+
+1. **Evidence, not taste.** A proposal cites `practice` — what the reference
+   corpus does and when — or a named failure the current form causes. "More
+   modern" is not a reason. `references/alternatives.md` is the checklist.
+2. **The caller check is absolute.** Before keeping anything more ergonomic than
+   the exemplar, find a real call site. This rule was paid for: defaulting
+   `session` to `None` read better and broke every caller, with the error landing
+   a frame from anything that explained it. No amount of corpus evidence
+   overrides it.
+3. **Propose, never adopt.** The user chooses. A departure they did not choose
+   is a defect, however well evidenced.
 
 ## Never read the codebase to understand it
 
@@ -45,10 +77,19 @@ paths that are already there.
   "app-builder": {
     "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
     "solution": "solution.university",
-    "questions": "many"
+    "questions": "many",
+    "references": [{ "name": "django", "repo": "https://github.com/django/django.git" }]
   }
 }
 ```
+
+**Three roles, and they are not interchangeable:**
+
+| Role | Key | What it is for |
+|---|---|---|
+| exemplar | `repositories` | what you copy — its conventions are the contract |
+| target | `solution` | what you build — the later decision, and it wins |
+| reference | `references` | what you consult — what the wider world does, and when |
 
 `questions` is a **policy**, not a count: `many` asks at every genuine decision
 point as the work reaches it, `key` asks only what is expensive to reverse,
@@ -76,6 +117,81 @@ applications are built, relative to this repository unless absolute.
 nothing to disagree with. Combining the best of several codebases needs several
 entries here, and if the user asks for that with one configured, say so rather
 than implying a comparison happened.
+
+## References are evidence, never a template
+
+A reference codebase answers a question the exemplar cannot: **is this
+convention still how anyone does it?** One codebase cannot tell you that. It is
+the difference between a live convention and a fossil that happens to hold a
+majority, and no amount of querying the exemplar reveals it.
+
+They are held out of `layers`, `shape`, `exemplars`, `questions`, `conform` and
+`DISAGREEMENTS` — by `read_index`, so it is not something a command has to
+remember. Only `practice` opts in.
+
+That default is not tidiness. Nine reference codebases outnumber one exemplar,
+so a reference reaching a contract computation replaces the convention being
+reproduced with an average of the internet — the same failure as averaging two
+exemplars, at nine times the scale. Measured, not assumed: `shape --path
+'*/models/*'` matches 10 classes across atlas and the target, and **674** with
+django let in. 652 of those are django's. Every ALWAYS row would have described
+a codebase nobody asked to copy.
+
+So: never move a repository from `references` to `repositories` to "get more
+signal". That is the failure, not the fix.
+
+**A reference is declared by URL and fetched, not by path.** `repo` names the
+upstream; the directory is always `.reference_corpus/<name>`, so the config name
+*is* the directory name and there is nothing to keep in sync. Setting the
+solution up elsewhere is one command:
+
+```bash
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/fetch.py
+```
+
+`fetch.py` is deliberately not part of `index.py`: indexing is local, offline and
+repeatable, and a build that quietly reaches for the network fails differently
+depending on where it runs. `.reference_corpus/` is gitignored and disposable
+like `.data/` -- and must stay so for a second reason, that each clone carries
+its own `.git` and `git add .` over such a directory writes a phantom submodule.
+
+`repositories` and `solution` keep using `path`: they are local by nature.
+
+**Index how a library is *used*, not how it is written.** A library's own
+repository is mostly its internals, and its internals are written under
+constraints no application shares. What you want from `react-admin` is
+`examples/`; from a machine-learning library, its example gallery. Say so with
+`include`, which names the subtrees to read and drops everything else without
+enumerating it:
+
+```json
+{ "name": "react-admin", "path": "...", "include": ["examples"] }
+```
+
+`exclude` is the blacklist and it fails the way blacklists do -- the same
+repository listed five directories to drop and still pulled in a documentation
+site. `include` was ten files tighter *and* shorter. Both may be given: `include`
+chooses the subtrees, `exclude` removes parts of them.
+
+One deliberate exception: the repository's **own top-level manifest** is kept
+whatever `include` says, because what a project declares overall is a fact about
+the project rather than about a subtree.
+
+The same trap applies to whole codebases, not just directories. `django`,
+`flask` and `fastapi` are indexed here and every one of them is a *framework* --
+their contents are `tests/` and framework internals, with no application
+anywhere. They are good evidence for language-level questions (`pathlib` vs
+`os.path`) and poor evidence for "how should an application be structured",
+which is most of what gets asked. Prefer a codebase that *uses* the thing.
+
+**Reading a codebase must not require having built it.** The skill carries its
+own `acorn` and `typescript` (its `package.json`; `node_modules` is gitignored),
+because locating a parser inside the *indexed* repository meant only repositories
+that had run `npm install` could be read — and it failed silently, collapsing
+every file into one `unparsed` record. A corpus of nine JavaScript projects
+reported almost no JavaScript. TypeScript is pinned to 5.x deliberately:
+TypeScript 7 is the native port, has no `lib/typescript.js`, and does not expose
+the `createSourceFile` API the adapter is written against.
 
 Step 6 still has work to do, though: most decisions are not disagreements
 between codebases but forks *inside* one, and `questions` finds those in a
@@ -184,6 +300,39 @@ else. No index yet, or one built from the wrong roots? Build it.
 
 Ask for a path only when the config has none and the user has not given one.
 
+**Then ask what no codebase can tell you.** Everything above is a fact you can
+look up. The following are not in any index, are not in the config, and change
+the right answer to many decisions further down:
+
+| | Why it changes downstream answers |
+|---|---|
+| **Scale** | rows, users, requests. Decides indexing strategy, pagination shape, sync vs async, whether a random primary key matters at all. |
+| **Who maintains it** | the author alone, a team, someone who has not arrived yet. Decides how much indirection is worth its cost. |
+| **Simplicity or flexibility** | the single most useful answer. Almost every "should this be pluggable" question is already settled by it. |
+| **One application, or a reusable framework** | decides whether public surface, extension points and backward compatibility are requirements or overhead. |
+| **Backward compatibility** | whether existing callers and stored data constrain the shape, or nothing has shipped yet. |
+| **Speed now, or longevity** | a prototype and a system with a five-year life want opposite trade-offs, and both are legitimate. |
+
+Ask them **once, at the start, in one message** — never one at a time, and never
+again later unless the request contradicts an answer. Nothing is recorded, for
+the same reason nothing else is: a stored answer suppresses the question next
+time, and the next generation is not the same generation.
+
+Three restraints keep this from becoming a form to fill in:
+
+- **Do not ask what you can see.** A target with seven models and one maintainer
+  in the git history has already answered "scale" and "who maintains it".
+  Infer it, state the inference in one line, and let it be corrected.
+- **Do not ask what does not matter here.** Adding a controller to an existing
+  layer needs none of this. Raise only what a decision in *this* request turns
+  on.
+- **Under `questions: none`, ask nothing.** Infer, state the assumptions
+  explicitly in the report, and let step 10's numbered list carry them.
+
+The failure this prevents is specific and expensive: a structural choice made
+early on an assumption nobody checked, discovered only when the assumption turns
+out to be wrong and the structure is load-bearing.
+
 ### 2. Find the layer
 
 ```bash
@@ -210,7 +359,12 @@ scripts/query.py shape --name <index-name> --path '<dir>/*' [--base <Base>]
 Read the output as separate instructions, not as a report:
 
 - **ALWAYS** — every class in the layer has it. This is the contract. Generated
-  code that omits any of it is wrong, whatever it looks like.
+  code that omits any of it is wrong, whatever it looks like. It is also the
+  section nothing else will question, so it is the one place where reading
+  carefully is the only safeguard: ask of each row whether it is load-bearing
+  for what was requested, and whether it is still how this gets built. Most
+  rows are both, and reproducing them is the whole job. The occasional row that
+  is neither is what `practice` and `references/alternatives.md` exist to catch.
 - **`nn%`** — usual but not universal. Follow it unless the request says
   otherwise, and say that you did.
 - **VARIES** — the axis of choice. Each of these is a decision the request must
@@ -332,7 +486,42 @@ single glob matches both.
 4. **The platform seam** — what the source assumes and the target does not. The
    *target* settles these, and the source cannot help.
 5. **Wiring** — when step 5 reveals a chain with more than one reasonable shape.
-6. **After generating** — the numbered list in step 9.
+6. **After generating** — the numbered list in step 10.
+
+**And the decisions the source made badly, or long ago.** `questions` ranks
+forks *inside* the exemplar. It cannot rank a choice the exemplar is unanimous
+about, because unanimity is what it reports as the contract — so the strongest
+convention in a codebase is the one nothing will ever question.
+
+That is what `practice` is for:
+
+```bash
+scripts/query.py practice --name <index> --on <token> --versus <token> [--lang python]
+```
+
+It reads the reference corpus, which nothing else does, and answers head to head
+— of the modules mentioning either option, what share uses each, and when each
+was last touched. Then it says which way the corpus leans and whether the
+exemplar disagrees.
+
+```
+  EXEMPLAR
+    atlas                  6  100%  2026-06     --                    6
+  REFERENCE
+    bulletproof-react      5   28%  2026-05     13   72%  2026-05    18
+
+  corpus favours   useQuery
+  atlas DISAGREES -- it uses useState
+```
+
+Read that as a **question**, never a verdict. A corpus can be unanimous and
+still wrong for this target, and `DISAGREES` is the start of a conversation with
+the user, not a defect to go and fix. What it removes is the alternative:
+proposing a change on the strength of your own opinion about what is modern.
+
+Use it when a choice is load-bearing and the exemplar is unanimous — precisely
+where `questions` goes quiet. Do not run it on matters of taste; a token with no
+consequence produces a table with no meaning.
 
 **And the decisions the source never made.** `questions` reports what is *in*
 the index, so it can raise a fork the source contains and never an absence:
@@ -364,17 +553,58 @@ substantive alternatives, each with what it actually means — the counts from t
 codebase, the consequence of choosing it — and always the option to write
 something else. A question with one plausible answer is not a question.
 
+**What every option owes.** Not prose about a choice — these five, or the option
+is not ready to be offered:
+
+| | |
+|---|---|
+| **What it is** | concretely, in the target's own terms |
+| **Advantage** | what it buys, specifically |
+| **Disadvantage** | what it costs. An option with none listed has not been thought about |
+| **When it is right** | the circumstance that makes this the answer — this is what makes options comparable rather than merely different |
+| **Departure or fidelity** | whether it matches the source, and if not, that `conform` will report it as ADDED or DROPPED |
+
+Then **recommend one, and say why.** A list of options with no recommendation
+pushes the work back onto the person who asked you to do it. Put the
+recommendation first and mark it, and be willing to be overruled — being
+overruled is the mechanism working, not failing.
+
+Two failure modes to avoid, both common:
+
+- **The fake option.** Three choices where two are obviously wrong. It reads as
+  diligence and is really a decision already made, presented as a question.
+- **The unbounded option.** "Use a query library" without saying which, or what
+  it adds to the dependency list. An option that cannot be costed cannot be
+  chosen.
+
+**Say the blast radius when it is large.** Some choices are cheap now and
+enormous later — changing POST-for-reads to GET rewrites every client. The cost
+of *reversing* a choice belongs in the question, not in the post-mortem.
+
+**Price every option.** An option that adds a dependency says which, and
+whether anything already declares it:
+
+```bash
+scripts/query.py deps --name <index> --on '@tanstack/react-query'
+```
+
+A package the exemplar already carries costs nothing to adopt; one nothing
+declares is a new commitment, and "use a query library" without that is the
+unbounded option above. Generated code importing something no manifest declares
+installs nothing and fails at run time with a resolution error that reads as a
+path problem.
+
 **Show the code, not a description of it.** When the options differ in shape
 rather than in degree, attach a **preview** to each: the two or three lines it
 would actually generate. A choice between `Mapped[UUID] = mapped_column(Uuid,
 primary_key=True, default=uuid4)` and `Mapped[str] = mapped_column(String(256),
 primary_key=True)` is decided in a second when both are on screen, and argued
 about for a paragraph when they are described in prose. This is the same reason
-step 9 exists: people judge an artefact faster and better than a proposition.
+step 10 exists: people judge an artefact faster and better than a proposition.
 
 Nothing is recorded. There is no ledger of past answers, and that is deliberate:
 a saved answer suppresses the question next time, and the next generation is not
-the same generation. Ask, use the answer, and state it in the report at step 9 --
+the same generation. Ask, use the answer, and state it in the report at step 10 --
 where it stays visible in the code rather than in a file about the code.
 
 What *is* still read is the generated code itself. `--target-path` reports
@@ -502,10 +732,61 @@ the one that would exercise what you generated. If there is none, say so
 plainly rather than calling the
 work verified.
 
-### 9. Report — and end with the choices, numbered
+### 9. Read your own output before anyone else does
 
-Every generation ends with the choices you made, numbered, whatever the
-`questions` budget was. This is the half of the decision process that does not
+Step 8 proves the code **works**. Nothing so far asks whether it should have been
+built this way — and the moment to ask is now, while it is fresh, cheap to change
+and not yet defended in a report.
+
+Read what you generated as though someone else wrote it and you are reviewing it.
+Six questions, and they are deliberately not about correctness:
+
+1. **Is this the simplest thing that satisfies the request?** Not the simplest
+   imaginable — the simplest that meets what was asked and keeps the contract.
+2. **What is here that nothing needs?** An abstraction with one implementation,
+   a parameter every caller passes the same value for, a layer that only
+   forwards. Generation tends to produce these because the exemplar had a reason
+   for them that the target does not.
+3. **Would I build it this way starting today**, knowing the brief from step 1
+   and not merely the exemplar?
+4. **What will the next person misread?** The line that looks wrong and is not
+   usually needs the comment, not the line that looks clever.
+5. **What did I decide by default rather than on purpose?** Anything you cannot
+   give a reason for is a candidate for step 10's list, not a settled matter.
+6. **Where did I claim more than I checked?** Cross-check the wording you are
+   about to use against the rungs you actually climbed.
+
+Step 8 already ran `conform` and `calls`; do not run them again. Read their
+output a second time with a different question in mind. In step 8 they answered
+*did anything break*. Here they answer *what does the shape of this output say*
+— a `DROPPED` row you can name is a departure, a `DROPPED` row you cannot is
+something you did without deciding to, and only the second reading tells them
+apart.
+
+**Every finding goes to the user, including the ones you are not going to act
+on.** A regret you fix silently and a regret you keep silently look identical
+from outside, and both deny the person a decision that is theirs. Number them
+into step 10's list.
+
+Three rules keep this from becoming a second generation pass:
+
+- **Do not rewrite what merely offends taste.** The caller check and the
+  evidence gate apply here exactly as in step 6 — reviewing your own output is
+  not a licence the source never got.
+- **A finding with no proposed action is still a finding.** "This will not scale
+  past a few thousand rows, and that is fine for now" is worth one line.
+- **Say when you found nothing.** A review that always produces findings is
+  performing diligence; one that never does is not happening. Either way, say
+  which.
+
+The failure this prevents is the specific one where generated code is *correct*,
+*proven*, *reported* — and structurally wrong in a way that was obvious for
+about ninety seconds after it was written, and expensive from then on.
+
+### 10. Report — and end with the choices, numbered
+
+Every generation ends with the choices you made, numbered, whichever `questions`
+policy was in force. This is the half of the decision process that does not
 interrupt: a person reacts to a concrete artefact far more easily than to an
 abstract question, and by the time they see the list the code already exists to
 look at.
@@ -518,19 +799,46 @@ CHOICES -- say a number to change one, and I will re-run that part
   3. delete behaviour ondelete='CASCADE'        the layer varies; the request
                                                 said "belongs to"
   4. table naming     snake_case plural         ALWAYS in the source
+  5. relationships    many-to-one only     DEPARTURE  atlas declares none;
+                                                conform reports this as ADDED
+  6. read verb        POST, as the source  CONSIDERED  practice: corpus favours
+                                                GET. Kept -- changing it
+                                                rewrites every client
 ```
+
+Rows 5 and 6 are the ones that used not to appear. A departure the user chose is
+invisible in a diff unless it is named, and a fossil you *decided to keep* is a
+choice as much as one you changed — reporting only what you altered hides the
+half of the reasoning that preserved something deliberately.
 
 Rules for that list, and they are what make it useful rather than decorative:
 
 - **Every choice that was not forced.** If `shape` said ALWAYS, it was contract
-  and it is not a choice — say that once, and do not pad the list with it.
+  and it is not a choice — say that once, and do not pad the list with it. The
+  exception is an ALWAYS row you *considered* departing from and did not: that
+  was a choice, and it belongs in the list with the evidence that settled it.
 - **Say what it was weighed against**, with the counts. A choice with no
   alternative shown cannot be judged.
-- **Carry the `questions` id** where one exists, so an answer can be recorded
-  and never asked again:
-  `decide --name <index> --id <id> --answer "<their words>"`.
-- **Anything the user changes is a decision**, not a correction. Record it under
-  the same id, then re-run only the part it affects.
+- **Anything the user changes is a decision**, not a correction. Re-run only the
+  part it affects, and carry the new answer through the rest of the session.
+  Nothing is written to disk — see step 6.
+
+**For each significant choice, five things.** The numbered list is the index;
+this is what a person needs to disagree with it usefully:
+
+- **Chosen**, and on what evidence — counts from `shape`, a row from `practice`,
+  the user's own answer.
+- **Rejected**, and why. The alternative that was real and lost. Silence here
+  reads as "no alternative existed", which is almost never true.
+- **The trade-off accepted.** Every choice costs something. If you cannot name
+  what this one costs, you have not finished choosing it.
+- **The assumption it rests on** — especially any inferred rather than asked at
+  step 1. An unstated assumption is the thing nobody can correct.
+- **The future limitation.** What this makes harder later, and roughly when it
+  would start to hurt.
+
+Keep it to a line each. The point is that a reader can find the load-bearing
+assumption without reading the code, not that every choice gets an essay.
 
 Then state, briefly:
 
@@ -538,8 +846,19 @@ Then state, briefly:
 - what you reproduced because it was contract
 - every VARIES you chose, and on what grounds — including every place the
   target's platform forced a departure from the source's
+- **every departure from the source, marked as such**, with what `conform`
+  reports for it. A departure the user chose is not a defect, but it is
+  invisible in the diff unless it is named here
 - which rungs of step 8 you climbed, and what each one actually proved
 - anything you could not verify
+- **what step 9's review found**, including anything you decided not to act on
+  and why — and say plainly if it found nothing. A review whose findings never
+  reach the report has not happened; the user cannot overrule a regret they were
+  never told about
+- **what the index could not see**, where it bears on what was asked. Deployment,
+  CI, dependency manifests and observability are not indexed at all
+  (`references/decisions.md`), so silence about them is not evidence they are
+  fine
 
 And report **what generating found wrong in the source**. Reading a layer closely
 enough to reproduce it, then running the result, exercises that layer harder than
@@ -570,9 +889,10 @@ the nearest layer as a source of conventions instead.
   segmenter splits each file into the languages it holds and the ordinary
   extractors read the spans. Their markup and styles are reported as not
   covered. Python needs nothing;
-  TypeScript needs `node` and the project's own `node_modules/typescript`;
-  JavaScript needs `node` and `acorn`; C# needs the .NET SDK — each present by
-  definition in a codebase of that language. Nothing else is covered and must
+  TypeScript and JavaScript need `node` only -- the skill carries its own
+  `typescript` and `acorn` and prefers the indexed project's when it has one, so
+  a repository that has never had `npm install` run is still readable; C# needs
+  the .NET SDK, which is present by definition in a C# codebase. Nothing else is covered and must
   not be guessed at. A language whose toolchain is missing, and a file type no
   extractor claims, are both **reported** — as `skipped` and as `not covered` in
   `meta` — never treated as absent. Check `meta` before concluding that a
@@ -588,6 +908,14 @@ the nearest layer as a source of conventions instead.
 - `references/decisions.md` holds the decisions each kind of layer normally
   faces, including the ones the source never made -- an absence produces no
   index record, so nothing else can surface it.
+- `references/corpus.md` says what each reference codebase is for, the rule that
+  decides what goes in -- index how a technology is *used*, not how it is
+  implemented -- and the corpus's known gaps.
+- `references/alternatives.md` is its mirror: what the source decided once,
+  everywhere, and never revisited. Unanimity is reported as contract and
+  produces no question, so the most embedded choice in a codebase is the one
+  nothing raises. Read it with `practice`, and mind the gate -- corpus evidence
+  or a named failure, or say nothing.
 - `references/generating.md` holds the detail: turning prose into a spec,
   reading `shape` output closely, what to do when exemplars conflict inside one
   codebase, why not to improve a signature that looks clumsy, why code that

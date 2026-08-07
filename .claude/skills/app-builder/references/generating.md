@@ -142,6 +142,43 @@ find and no question gets asked, because an absence leaves no record in the
 index at all. `references/decisions.md` is the checklist for those, per layer
 kind. Propose, mark it as a departure, and let the user decide.
 
+### The two silences, and the two checklists
+
+There are exactly two ways a decision escapes without ever being raised, and
+they need different instruments:
+
+| The source... | Leaves in the index | Caught by |
+|---|---|---|
+| does it two ways | a `VARIES` row | `questions` |
+| does not do it at all | nothing | `references/decisions.md` |
+| does it one way, always | an `ALWAYS` row read as contract | `references/alternatives.md` + `practice` |
+
+The third line is the newest and the least intuitive, because an `ALWAYS` row
+looks like the *opposite* of a silence -- it is the loudest thing `shape`
+prints. But loud is not the same as examined. Unanimity is what makes something
+a contract, and it is equally what makes it invisible as a choice: nothing forks,
+so nothing ranks it, so nobody asks.
+
+Three worked cases, to show the difference between a fossil and a convention
+doing its job:
+
+- **A real fossil.** Every module reaches for `os.path`, the corpus moved to
+  `pathlib` years ago, and nothing in the codebase depends on the difference.
+  Worth raising; cheap to change; nothing breaks.
+- **Not a fossil, however old it looks.** `session` as a required first
+  parameter. Clumsy, universal, and load-bearing -- the caller check finds out
+  in one command, which is why the caller check is not optional.
+- **A fossil you still must not touch unasked.** POST-for-reads across an
+  entire web API. The corpus disagrees; changing it also rewrites every client.
+  Propose it *with* the blast radius, and expect "no" to be the right answer.
+
+The failure mode of this whole section is not missing an improvement. It is a
+generation that spends its attention arguing about the exemplar's taste instead
+of reproducing it. Fidelity is still the default. These checklists exist for the
+handful of rows where the default is genuinely wrong, and a proposal without
+evidence -- from `practice`, or from a failure you can name -- is noise wearing
+the costume of diligence.
+
 ## Working from one directory is not working
 
 Generated code gets tested from the directory it was generated into, and passes.

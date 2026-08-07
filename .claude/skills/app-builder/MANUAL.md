@@ -36,7 +36,10 @@ Point it at codebases in `config.json`, at the root of this repository:
       { "name": "atlas", "path": "D:/Dev.Work/project.finance/solution.atlas" }
     ],
     "solution": "solution.university",
-    "questions": "many"
+    "questions": "many",
+    "references": [
+      { "name": "django", "repo": "https://github.com/django/django.git" }
+    ]
   }
 }
 ```
@@ -45,7 +48,18 @@ Point it at codebases in `config.json`, at the root of this repository:
 - **`solution`** — where generated code is built. It is indexed too, and once it
   holds a layer it **outranks the sources** for that layer: a convention it
   deliberately dropped will not be reintroduced from a source that still has it.
-- Either entry may take `"exclude": ["some/dir"]` for a tree that is not source.
+- **`references`** — widely-used codebases indexed as **evidence**, never as
+  templates. Declared by `repo` URL and fetched into `.reference_corpus/<name>`
+  by `scripts/fetch.py`; nothing here is a local path, so the corpus is
+  reproducible on any machine. They answer "is this still how anyone builds it", which one codebase
+  cannot. Held out of every command except `practice` -- see "Is this still how
+  anyone builds it?" under Recipes for why that matters.
+- Any entry may take `"include": ["dir", "dir/sub"]` to read *only* those
+  subtrees, or `"exclude": ["some/dir"]` to drop some. For a reference, prefer
+  `include`: what you want from a library's repository is the part showing it
+  being **used** (`examples/`), not its internals. A blacklist means naming
+  everything you do not want and silently indexing whatever you miss. The
+  repository's own top-level manifest is kept either way.
 - **`questions`** — how eagerly to ask. `"many"` asks at every genuine decision
   point as the work reaches it; `"key"` asks only what is expensive to reverse;
   `"none"` decides everything and reports it.
@@ -73,11 +87,12 @@ on this machine is the failure worth catching first.
 | Language | Needs | Notes |
 |---|---|---|
 | Python, `.py` `.pyi` | nothing | the parser is in the standard library |
-| TypeScript, `.ts` `.tsx` `.mts` `.cts` | `node` + the project's `node_modules/typescript` | present by definition in a TS project |
-| JavaScript, `.js` `.jsx` `.mjs` `.cjs` | `node` + `node_modules/acorn` | ships inside eslint, vite, webpack, rollup |
+| TypeScript, `.ts` `.tsx` `.mts` `.cts` | `node` + `typescript` | the skill ships its own (pinned 5.x); the indexed project's is preferred when it has one |
+| JavaScript, `.js` `.jsx` `.mjs` `.cjs` | `node` + `acorn` | the skill ships its own; the indexed project's is preferred when it has one |
 | C# | the .NET SDK | the adapter builds itself on first use, ~20s, then caches |
 | HTML templates, `.html` `.jinja` `.j2` | nothing | Django and Jinja, read by regex — `heuristic` fidelity |
 | Stylesheets, `.css` `.scss` `.less` | nothing | tokens, mixins and `@import`; `.sass` is not read |
+| Manifests, `package.json` `pyproject.toml` `requirements*.txt` `.csproj` | nothing | read for declared dependencies and scripts, not as source; see `deps` |
 | Vue `.vue`, Svelte `.svelte` | whatever the script block is written in | split first, then read as TypeScript or JavaScript |
 | Razor `.razor` `.cshtml` | the .NET SDK | only the `@code` block is C#; the rest is markup |
 
@@ -99,6 +114,9 @@ not a selection.
 # 1. build the index: every configured repository, plus the solution
 ./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py --name atlas
 
+# ... and after editing your own code, rebuild only that:
+#     index.py --name atlas --only solution.university      (seconds, not minutes)
+
 # 2. what is in there
 scripts/query.py layers --name atlas --depth 3
 
@@ -112,8 +130,15 @@ scripts/query.py exemplars --name atlas --path 'database/*/models/*'
 Indexing is cheap — a few seconds for hundreds of files — so rebuild whenever a
 source may have changed. Staleness costs more than the rebuild.
 
-**Never open `index.jsonl`.** It is megabytes, and every question you would ask
-it has a subcommand that answers in a few hundred lines.
+**Never open the index.** It is one `.jsonl` file per repository under
+`.data/<name>/`, megabytes in total, and every question you would ask it has a
+subcommand that answers in a few hundred lines.
+
+The split is what makes `--only` possible: a full build of fourteen codebases
+takes minutes, rebuilding one takes under a second, and every other shard is
+left untouched. `meta.json` carries per-repository totals and a record of which
+repository owns each physically shared file, so a partial rebuild still reports
+the whole index honestly and cannot double-count a linked library.
 
 ---
 
@@ -280,11 +305,13 @@ it without `--depth 1`.
 scripts/query.py questions --name X --path '<layer>' --limit 3
 ```
 
-`shape` reports everything that varies. Most of it does not deserve a question,
-and `--limit` is a **budget**: spend it on the three decisions that cost most to
-get wrong, decide the rest yourself and say so. Ranking uses what the index
-already knows — how irreversible the kind of decision is, how genuinely forked
-the layer is, and whether the majority form is a fossil.
+`shape` reports everything that varies. Most of it does not deserve a question.
+`--limit` truncates the output; it is **not** a cap on how much gets asked.
+Capping the questions does not remove the decisions — it turns the ones past the
+cap into silent guesses, which is why the `questions` setting in `config.json`
+is a policy (`many` / `key` / `none`) rather than a number. Ranking uses what the
+index already knows: how irreversible the kind of decision is, how genuinely
+forked the layer is, and whether the majority form is a fossil.
 
 Two things it deliberately does *not* ask about. **Presence of a field or method
 in a minority** is the domain, not a decision: a model has `instrument_id`
@@ -309,6 +336,48 @@ once and the questions will be the wrong ones. Narrow it first.
 Run `shape` over the layer and read the `AGEING` section. Anything listed
 survives only in files nobody has touched for over a year.
 
+**Is this still how anyone builds it?**
+
+`AGEING` answers that within one codebase. It cannot tell you the codebase is
+uniformly behind, because a convention nothing disagrees with produces no
+`VARIES` row and no question at all — the most embedded choice is the one nothing
+raises. That needs a second opinion, which is what the `references` in
+`config.json` are: widely-used codebases indexed as **evidence**, never as
+templates.
+
+```bash
+scripts/query.py practice --name X --on useState --versus useQuery --lang typescript
+```
+
+```
+  EXEMPLAR
+    atlas                  6  100%  2026-06     --                    6
+  REFERENCE
+    bulletproof-react      5   28%  2026-05     13   72%  2026-05    18
+
+  corpus favours   useQuery
+  atlas DISAGREES -- it uses useState
+```
+
+Percentages are head to head: the denominator is modules mentioning *either*
+option, not modules in the repository, because the useful comparison is between
+the two choices rather than against all the code that never faced the question.
+A module using both counts under both.
+
+Three things to keep in mind reading it:
+
+- **`DISAGREES` does not mean wrong.** `--on requests --versus httpx` reports the
+  corpus favouring `requests` while atlas is 88% `httpx` — atlas is *ahead*, not
+  behind. Django and Flask are mature codebases whose tests still use `requests`.
+  Read the dates, not only the counts.
+- **The corpus is ten repositories, not a survey.** Enough to show a choice is
+  contested; not enough to settle it.
+- **It is the only command that reads references.** Every other command holds
+  them out, deliberately: ten reference codebases outnumber one exemplar, and
+  letting them into `shape` would replace your contract with an average of the
+  internet. Measured — `shape --path '*/models/*'` sees 10 classes; with django
+  let in it sees 674, of which 652 are django's.
+
 ---
 
 ## Command reference
@@ -331,6 +400,8 @@ built anything. Filters marked ● are shared by `find`, `shape`, `exemplars`,
 | `conform` | whether generated code still keeps the source's contract |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
 | `questions` | the decisions this layer forces, ranked by what they cost to get wrong |
+| `practice --on T --versus T` | how the reference corpus resolves a choice, against how your exemplar resolves it |
+| `deps` | what each codebase declares it depends on and what it runs; `--on NAME` for who declares a package |
 
 Shared filters ●: `--path GLOB`, `--not-path GLOB` (repeatable), `--base`,
 `--decorator`, `--symbol REGEX`, `--repo`, `--lang`.
@@ -483,6 +554,8 @@ even when two solutions link to the same library through junctions. `meta` repor
   references/
     generating.md          how to read output closely; what to do when it conflicts
     languages.md           per-language mapping, traps, and how to add one
+    decisions.md           decisions a layer faces that the source never made
+    alternatives.md        decisions the source made once and never revisited
   scripts/
     index.py               build an index
     query.py               ask it questions
@@ -491,7 +564,17 @@ even when two solutions link to the same library through junctions. `meta` repor
     extractors/            one per language
     segmenters/            one per container format: .vue, .svelte, .razor
     adapters/              the toolchains they shell out to
+  package.json             acorn + typescript, so JS/TS can be read from a fresh
+                           checkout without npm install in the indexed repository.
+                           typescript is pinned to 5.x: 7 is the native port and
+                           does not expose the API the adapter uses
+  node_modules/            those parsers — gitignored; restore with npm install
+    fetch.py               clone the reference corpus declared in config.json
   .data/                   indexes — gitignored, rebuildable, never edited by hand
+
+D:/Dev.Work/aifx-sdlc/
+  .reference_corpus/       the reference codebases, cloned by fetch.py —
+                           gitignored, disposable, ~2 GB, restore with fetch.py
 ```
 
 Delete `.data/` any time. It is derived, and `index.py` rebuilds it in seconds.
