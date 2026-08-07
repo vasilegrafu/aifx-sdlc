@@ -35,9 +35,11 @@ from pathlib import Path
 from _common import (SKIP_DIRS, _is_excluded, _is_included,
                      _may_contain_included, _is_skipped_dir,
                      configured_references,
+                     DEFAULT_ROLE, ROLE_DIRS,
                      configured_repositories, configured_solution, display_path,
-                     index_path,
-                     iter_source_files, load_config, rel, shard_name, workspace)
+                     index_file, index_meta, index_path, index_root,
+                     indexed_repositories,
+                     iter_source_files, load_config, rel, rollup_path, safe_name)
 from extractors import ALL_EXTENSIONS, REGISTRY, for_path
 import manifests
 import segmenters
@@ -340,8 +342,6 @@ def main() -> int:
     ap.add_argument("roots", nargs="*",
                     help="codebase roots to index (default: every repository "
                          "in config.json)")
-    ap.add_argument("--name", default="default",
-                    help="index name (workspace <skill>/.data/<name>/)")
     ap.add_argument("--max-bytes", type=int, default=2_000_000,
                     help="skip files larger than this")
     ap.add_argument("--no-git", action="store_true",
@@ -352,7 +352,7 @@ def main() -> int:
                     help="leave out the reference corpus (much faster to build)")
     ap.add_argument("--only", metavar="NAME[,NAME...]",
                     help="rebuild only these repositories, keeping every other "
-                         "shard as it is. The target changes constantly and the "
+                         "one as it is. The solution changes constantly and the "
                          "reference corpus never does")
     args = ap.parse_args()
 
@@ -388,15 +388,23 @@ def main() -> int:
             if not targets:
                 sys.exit("nothing left to index")
 
-    ws = workspace(args.name)
-    ws.mkdir(parents=True, exist_ok=True)
+    # Two config names that sanitise to one directory name. As files these
+    # merely overwrote each other; as directories they would interleave two
+    # codebases into one index and report the blend as a convention. Refused
+    # rather than absorbed -- the config is wrong and only its author can say
+    # which name was meant.
+    claimed: dict[tuple, list] = {}
+    for t in targets:
+        claimed.setdefault(
+            (ROLE_DIRS.get(t.get("role") or DEFAULT_ROLE), safe_name(t["name"])),
+            []).append(t["name"])
+    collisions = {k: v for k, v in claimed.items() if len(v) > 1}
+    if collisions:
+        sys.exit("two repositories would share one index directory:\n" + "\n".join(
+            f"  {role}/{directory}  <- {', '.join(names)}"
+            for (role, directory), names in sorted(collisions.items())))
 
-    previous = {}
-    if (ws / "meta.json").is_file():
-        try:
-            previous = json.loads((ws / "meta.json").read_text(encoding="utf-8"))
-        except ValueError:
-            previous = {}
+    index_root().mkdir(parents=True, exist_ok=True)
 
     if args.only:
         wanted = {n.strip() for n in args.only.split(",") if n.strip()}
@@ -405,21 +413,34 @@ def main() -> int:
             sys.exit(f"--only names nothing configured: {', '.join(sorted(unknown))}\n"
                      f"available: {', '.join(t['name'] for t in targets)}")
         rebuilding = [t for t in targets if t["name"] in wanted]
-        if not previous:
+        if not indexed_repositories():
             print("no previous index, so --only builds those repositories alone",
                   file=sys.stderr)
     else:
         rebuilding = targets
-        # A full build owns the workspace, so a shard left by a repository that
-        # has since been removed from the config must go with it. Otherwise a
-        # dropped reference keeps answering queries, which is the failure the
-        # role separation exists to prevent, arriving by a different door.
-        keep = {shard_name(t["name"]) for t in targets}
-        for stale in ws.glob("*.jsonl"):
-            if stale.name not in keep:
-                print(f"  removing shard for a repository no longer configured:"
-                      f" {stale.name}")
-                stale.unlink()
+        # A repository dropped from the config must lose its index, or it keeps
+        # answering queries -- the failure the role separation exists to
+        # prevent, arriving by a different door.
+        #
+        # Measured against the *config*, not against this run's targets, and
+        # that distinction was a live bug: `--no-references` leaves references
+        # out of `targets`, so pruning by target deleted the entire reference
+        # index every time someone asked for the fast build. "Leave it out of
+        # this run" and "it is gone" are not the same instruction. Explicit
+        # roots on the command line say nothing about the config, so they prune
+        # nothing at all.
+        if not args.roots:
+            still_configured = {
+                (ROLE_DIRS.get(t.get("role") or DEFAULT_ROLE), safe_name(t["name"]))
+                for t in (configured_repositories() + [configured_solution()]
+                          + configured_references())
+            }
+            for role, directory in sorted(ROLE_DIRS.items()):
+                for stale in sorted((index_root() / directory).glob("*")):
+                    if stale.is_dir() and (directory, stale.name) not in still_configured:
+                        print("  removing the index of a repository no longer"
+                              f" configured: {directory}/{stale.name}")
+                        shutil.rmtree(stale, ignore_errors=True)
 
     started = time.time()
     files = classes = funcs = unparsed = dated = 0
@@ -436,10 +457,21 @@ def main() -> int:
     # is not rebuilding. devfx is reached through both atlas and the solution;
     # rebuilding the solution alone without this would index those 268 files a
     # second time and every count that mentions them would be wrong.
-    seen_real: dict[str, str] = {
-        real: owner for real, owner in (previous.get("claims") or {}).items()
-        if owner not in {t["name"] for t in rebuilding}
-    }
+    # Read from each repository's own meta.json rather than from one shared
+    # file, so a partial rebuild inherits exactly the claims of the
+    # repositories it is leaving alone -- no merge, and nothing to forget.
+    rebuilding_names = {t["name"] for t in rebuilding}
+    seen_real: dict[str, str] = {}
+    for shard in indexed_repositories():
+        try:
+            kept_meta = json.loads(shard["meta"].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        owner = kept_meta.get("repo")
+        if owner in rebuilding_names:
+            continue
+        for real in kept_meta.get("claims") or ():
+            seen_real[real] = owner
     duplicates = 0
     per_language: dict[str, int] = {}
     fidelity: dict[str, str] = {}
@@ -466,14 +498,23 @@ def main() -> int:
             # dozen open files costs nothing, and closing them here rather than
             # per iteration means an extractor that raises cannot leave a
             # half-written shard behind that still parses for its first N lines.
+            role = target.get("role") or DEFAULT_ROLE
+            index_path(role, repo).mkdir(parents=True, exist_ok=True)
             fh = stack.enter_context(
-                index_path(args.name, repo).open("w", encoding="utf-8", newline="\n"))
+                index_file(role, repo).open("w", encoding="utf-8", newline="\n"))
             repos.append(repo)
             n_before, c_before = files, classes
             f_before, u_before, m_before = funcs, unparsed, manifest_count
             repo_langs: dict[str, int] = {}
+            # Per repository as well as globally, because each repository now
+            # writes its own meta.json and the roll-up is the sum of them.
+            repo_uncovered: dict[str, int] = {}
+            repo_skipped: list[dict] = []
+            repo_claims: list[str] = []
+            repo_dated = 0
             commits = {} if args.no_git else git_last_commit(root)
-            if not args.no_git and git_is_shallow(root):
+            repo_shallow = not args.no_git and git_is_shallow(root)
+            if repo_shallow:
                 shallow.append(repo)
             if not args.no_git:
                 # A linked-in directory belongs to the solution but is tracked in
@@ -484,6 +525,7 @@ def main() -> int:
                     for path, stamp in git_last_commit(child).items():
                         commits.setdefault(f"{child.name}/{path}", stamp)
             dated += len(commits)
+            repo_dated = len(commits)
             skipped_here = 0
 
             # Group by extractor before calling any of them. Every extractor but
@@ -494,7 +536,7 @@ def main() -> int:
             for path in iter_source_files(root, args.max_bytes,
                                           target.get("exclude", ()),
                                           ALL_EXTENSIONS + segmenters.ALL_EXTENSIONS,
-                                          uncovered=uncovered,
+                                          uncovered=repo_uncovered,
                                           include=target.get("include", ())):
                 try:
                     real = str(path.resolve())
@@ -505,6 +547,7 @@ def main() -> int:
                     duplicates += 1
                     continue
                 seen_real[real] = repo
+                repo_claims.append(real)
                 extractor = for_path(path)
                 if extractor is not None:
                     by_language[extractor.LANGUAGE].append(path)
@@ -515,7 +558,7 @@ def main() -> int:
             if containers:
                 here: dict[str, int] = {}
                 for rec in extract_containers(containers, root, repo, commits,
-                                              uncovered, skipped_languages):
+                                              repo_uncovered, skipped_languages):
                     kind = rec.get("k")
                     if kind == "class":
                         classes += 1
@@ -541,6 +584,8 @@ def main() -> int:
                     # from a tool whose job is to report what is ALWAYS true --
                     # absent evidence reads as absent convention.
                     skipped_languages.append((repo, language, len(paths), reason))
+                    repo_skipped.append({"language": language, "files": len(paths),
+                                         "reason": reason})
                     print(f"  {repo}: {len(paths)} {language} files SKIPPED -- {reason}",
                           file=sys.stderr)
                     continue
@@ -583,80 +628,118 @@ def main() -> int:
                 here_manifests += 1
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
 
+            for ext, n in repo_uncovered.items():
+                uncovered[ext] = uncovered.get(ext, 0) + n
+
             per_repo[repo] = {
                 "files": files - n_before, "classes": classes - c_before,
                 "funcs": funcs - f_before, "unparsed": unparsed - u_before,
                 "manifests": manifest_count - m_before, "languages": repo_langs,
             }
+            # Beside the records rather than in a shared file. The totals for a
+            # repository are written by the run that read it and by nothing
+            # else, so a partial rebuild cannot report a stale number for a
+            # repository it did not touch -- there is no shared document for it
+            # to forget to update.
+            index_meta(role, repo).write_text(json.dumps({
+                "repo": repo, "role": role, "root": display_path(root),
+                **per_repo[repo],
+                "fidelity": {lang: fidelity.get(lang, "?") for lang in repo_langs},
+                "git_dated": repo_dated, "shallow": repo_shallow,
+                "duplicates_skipped": skipped_here,
+                "skipped": repo_skipped,
+                "not_covered": dict(sorted(repo_uncovered.items(),
+                                           key=lambda kv: -kv[1])),
+                # Which physical files this repository owns, so another run can
+                # honour the claim without re-reading the codebase. Absolute:
+                # it is a filesystem identity, and its whole job is telling two
+                # repositories apart when a junction makes one tree reachable
+                # through both.
+                "claims": repo_claims,
+                "built": time.strftime("%Y-%m-%d %H:%M:%S"),
+            }, indent=2) + "\n", encoding="utf-8")
 
             print(f"  {repo}: {files - n_before} files"
                   + (f"  ({', '.join(counted)})" if len(counted) > 1 else "")
                   + (f"  ({here_manifests} manifest(s))" if here_manifests else "")
                   + (f"  ({skipped_here} already indexed elsewhere)" if skipped_here else "")
-                  + f"  <- {root}")
+                  + f"  <- {display_path(root)}")
 
-    # A partial build knows only about what it read, so anything describing the
-    # whole index has to be merged with what the previous build recorded for the
-    # repositories left alone. Totals are the obvious casualty: reporting 71
-    # files after rebuilding just the target would be a lie about the index that
-    # queries are actually reading.
-    kept: dict[str, dict] = {}
-    if args.only and previous:
-        rebuilt = {t["name"] for t in rebuilding}
-        kept = {r: v for r, v in (previous.get("per_repo") or {}).items()
-                if r not in rebuilt and r in {t["name"] for t in targets}}
-        for v in kept.values():
-            files += v.get("files", 0)
-            classes += v.get("classes", 0)
-            funcs += v.get("funcs", 0)
-            unparsed += v.get("unparsed", 0)
-            manifest_count += v.get("manifests", 0)
-            for lang, n in (v.get("languages") or {}).items():
-                per_language[lang] = per_language.get(lang, 0) + n
-        repos = sorted(set(repos) | set(kept))
-        shallow = sorted(set(shallow) | {r for r in (previous.get("shallow") or ())
-                                         if r in kept})
-        seen_real.update({real: owner
-                          for real, owner in (previous.get("claims") or {}).items()
-                          if owner in kept})
+    # The roll-up is *derived*, every time, by reading what each repository
+    # wrote about itself. Nothing is merged and nothing is carried forward.
+    #
+    # This is the whole reason a repository owns a directory rather than a
+    # file. The previous shape kept every repository's totals in one shared
+    # document, so a partial rebuild had to merge back what it had not read --
+    # and the version that wrote only what it rebuilt made the damage
+    # cumulative: each partial build dropped every repository it did not touch,
+    # until meta.json described three repositories while twenty shards sat on
+    # disk. The shards were always right; the summary of them was not, which is
+    # the harder kind of wrong to notice. A summary that cannot be edited, only
+    # recomputed, cannot drift from what it summarises.
+    per_repo, repos, shallow, skipped_languages = {}, [], [], []
+    files = classes = funcs = unparsed = dated = manifest_count = duplicates = 0
+    per_language, fidelity, uncovered = {}, {}, {}
+    roles, roots = {}, {}
+    for shard in indexed_repositories():
+        try:
+            m = json.loads(shard["meta"].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            print(f"  unreadable meta.json, not counted: {shard['dir']}",
+                  file=sys.stderr)
+            continue
+        name = m.get("repo") or shard["dir"]
+        repos.append(name)
+        roles[name] = m.get("role") or shard["role"]
+        roots[name] = m.get("root", "")
+        per_repo[name] = {k: m.get(k) for k in
+                          ("files", "classes", "funcs", "unparsed",
+                           "manifests", "languages")}
+        files += m.get("files") or 0
+        classes += m.get("classes") or 0
+        funcs += m.get("funcs") or 0
+        unparsed += m.get("unparsed") or 0
+        manifest_count += m.get("manifests") or 0
+        dated += m.get("git_dated") or 0
+        duplicates += m.get("duplicates_skipped") or 0
+        if m.get("shallow"):
+            shallow.append(name)
+        for lang, n in (m.get("languages") or {}).items():
+            per_language[lang] = per_language.get(lang, 0) + n
+        for lang, how in (m.get("fidelity") or {}).items():
+            fidelity.setdefault(lang, how)
+        for ext, n in (m.get("not_covered") or {}).items():
+            uncovered[ext] = uncovered.get(ext, 0) + n
+        for entry in m.get("skipped") or ():
+            skipped_languages.append({"repo": name, **entry})
 
     meta = {
-        "name": args.name,
         # Displayed, so stored the way it should be read: relative inside the
-        # checkout, absolute only for what genuinely lives elsewhere. `claims`
-        # below is the opposite case and stays absolute -- it is a filesystem
-        # identity used to tell two repositories apart when a junction makes one
-        # tree reachable through both, and a relative key cannot do that.
-        "roots": {t["name"]: display_path(t["path"]) for t in targets},
+        # checkout, absolute only for what genuinely lives elsewhere.
+        "roots": roots,
         "source": "command line" if args.roots else display_path(load_config()["_file"]),
-        "repos": repos, "target": next((t["name"] for t in targets if t.get("is_target")), None),
-        "roles": {t["name"]: t.get("role") or "exemplar" for t in targets},
+        "repos": sorted(repos),
+        "target": next((r for r, role in roles.items() if role == "target"), None),
+        # Recorded for display only. Nothing reads it to decide anything: a
+        # repository's role is the directory it is in, so this cannot disagree
+        # with the index the way a roles map once could.
+        "roles": roles,
         "files": files, "classes": classes, "funcs": funcs,
         "unparsed": unparsed, "git_dated": dated, "duplicates_skipped": duplicates,
         "manifests": manifest_count,
-        # Merged, not replaced. Writing only what this run rebuilt made the
-        # damage cumulative: each partial build dropped every repository it did
-        # not touch, so the *next* partial build had nothing left to merge and
-        # meta.json converged on describing a handful of repositories while
-        # twenty shards sat on disk. The shards were always right; the summary
-        # of them was not, which is the harder kind of wrong to notice.
-        "per_repo": {**kept, **per_repo},
-        # Which repository owns each physically distinct file, so a partial
-        # rebuild can honour claims it did not make itself.
-        "claims": seen_real,
+        "per_repo": per_repo,
         "partial": sorted(t["name"] for t in rebuilding) if args.only else None,
         "languages": {lang: {"files": n, "fidelity": fidelity.get(lang, "?")}
                       for lang, n in sorted(per_language.items())},
-        "shallow": shallow,
-        "skipped": [{"repo": r, "language": l, "files": n, "reason": why}
-                    for r, l, n, why in skipped_languages],
+        "shallow": sorted(shallow),
+        "skipped": skipped_languages,
         "not_covered": dict(sorted(uncovered.items(), key=lambda kv: -kv[1])),
         "built": time.strftime("%Y-%m-%d %H:%M:%S"),
         "seconds": round(time.time() - started, 1),
     }
-    (ws / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    rollup_path().write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
 
-    shards = sorted(ws.glob('*.jsonl'))
+    shards = [s["records"] for s in indexed_repositories()]
     size_mb = sum(f.stat().st_size for f in shards) / 1e6
     print(f"\nindexed {files} files -> {classes} classes, {funcs} functions"
           f"{f', {unparsed} unparsed' if unparsed else ''}")
@@ -668,13 +751,13 @@ def main() -> int:
               + "\n  no extractor reads these, so nothing about them is in the"
                 " index -- do not\n  read their absence from `shape` as their"
                 " absence from the codebase.")
-    print(f"{display_path(ws)}  ({len(shards)} shard(s), {size_mb:.1f} MB,"
-          f" {meta['seconds']}s)")
+    print(f"{display_path(index_root())}  ({len(shards)} repositor(y/ies),"
+          f" {size_mb:.1f} MB, {meta['seconds']}s)")
     if args.only:
         print(f"  partial: rebuilt {', '.join(sorted(t['name'] for t in rebuilding))};"
-              f" every other shard was left as it was")
-    print("\nDo not read this file. Query it:")
-    print(f"  scripts/query.py layers --name {args.name}")
+              f" every other repository was left as it was")
+    print("\nDo not read this index. Query it:")
+    print("  scripts/query.py layers")
     return 0
 
 

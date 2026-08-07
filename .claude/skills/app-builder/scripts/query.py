@@ -40,9 +40,11 @@ from collections import Counter, defaultdict
 
 from _common import (configured_questions, configured_references,
                      configured_repositories, configured_solution, corpus_root,
-                     display_path, find_files, load_config, pct,
-                     indexed_roles, read_index, skill_root, truncate,
-                     workspace)
+                     ROLE_DIRS, ROLE_ORDER,
+                     display_path, find_files, index_root, indexed_repositories,
+                     load_config, pct,
+                     indexed_roles, read_index, rollup_path, skill_root,
+                     truncate)
 
 # ---------------------------------------------------------------- filtering
 
@@ -74,7 +76,6 @@ def call_names(entries) -> list[str]:
 
 
 def add_filters(ap):
-    ap.add_argument("--name", default="default", help="index name")
     ap.add_argument("--path", help="glob on the file path, e.g. 'database/*/models/*'")
     ap.add_argument("--not-path", action="append", metavar="GLOB", default=[],
                     help="exclude paths matching this glob; repeatable. Use it to "
@@ -132,7 +133,7 @@ def collect(args, kinds=("class",)):
     which is why the filter is applied at the end rather than per record.
     """
     recs, tech, other = [], {}, 0
-    for r in read_index(args.name):
+    for r in read_index():
         # Directive-borne technologies live on the *class* record, because that
         # is where a template's attributes are recorded -- so the map is fed
         # from both kinds and merged, rather than from modules alone.
@@ -401,9 +402,17 @@ def cmd_config(args):
         print("              a decision cannot be raised before the work reaches it,")
         print("              and every one offers options plus your own wording.")
 
-    data = skill_root() / ".data"
-    built = sorted(p.name for p in data.iterdir() if p.is_dir()) if data.is_dir() else []
-    print(f"\nINDEXES BUILT {', '.join(built) if built else 'none -- run index.py'}")
+    # There is one index, so what is worth reporting is not its name but what
+    # it holds, by role -- which is the only thing that decides what any other
+    # command can see.
+    built = indexed_repositories()
+    if not built:
+        print(f"\nINDEX         not built -- run scripts/index.py")
+        return
+    counts = Counter(s["role"] for s in built)
+    print(f"\nINDEX         {display_path(index_root())}")
+    print("              " + ", ".join(
+        f"{counts[role]} in {ROLE_DIRS[role]}/" for role in ROLE_ORDER if counts[role]))
 
 
 # Per-language facts, kept in one table rather than scattered through the
@@ -551,7 +560,7 @@ def cmd_proof(args):
     # Index first: it says which languages are actually present, so the
     # filesystem is only asked about those.
     per_repo_langs, test_dirs, entries = defaultdict(Counter), Counter(), defaultdict(list)
-    for rec in read_index(args.name):
+    for rec in read_index():
         if args.repo and rec["repo"] != args.repo:
             continue
         if rec["k"] != "module":
@@ -616,9 +625,10 @@ def cmd_proof(args):
 
 
 def cmd_meta(args):
-    path = workspace(args.name) / "meta.json"
+    path = rollup_path()
     if not path.exists():
-        return print(f"no index named {args.name!r}")
+        return print(f"no index at {display_path(index_root())}"
+                     "\nbuild one first:  scripts/index.py")
     meta = json.loads(path.read_text(encoding="utf-8"))
     for k, v in meta.items():
         if isinstance(v, dict):
@@ -634,7 +644,7 @@ def cmd_meta(args):
 def cmd_layers(args):
     dirs = defaultdict(lambda: {"files": 0, "classes": 0, "loc": 0,
                                 "bases": Counter(), "names": []})
-    for rec in read_index(args.name):
+    for rec in read_index():
         # Only kinds this counts. Anything else -- a manifest, an unparsed file
         # -- would otherwise create a directory row with no files and no classes
         # in it, which reads as a layer that exists and is empty.
@@ -707,14 +717,14 @@ def stamp(rec) -> int:
     return rec.get("commit") or rec.get("mtime") or 0
 
 
-def shallow_repos(name: str) -> frozenset:
+def shallow_repos() -> frozenset:
     """Repositories the index recorded as shallow clones.
 
     Absent from an index built before this was recorded, in which case nothing
     is claimed -- silence is the honest answer to a question that was never
     asked.
     """
-    path = workspace(name) / "meta.json"
+    path = rollup_path()
     try:
         return frozenset(json.loads(path.read_text(encoding="utf-8"))
                          .get("shallow") or ())
@@ -774,7 +784,7 @@ def cmd_shape(args):
     set_newest = max((stamp(r) for r in recs), default=0)
     set_oldest = min((stamp(r) for r in recs if stamp(r)), default=0)
     ageing = 365 * 24 * 3600
-    dates_are = date_provenance(recs, shallow_repos(args.name))
+    dates_are = date_provenance(recs, shallow_repos())
 
     print(f"{total} {noun}"
           + (f"  ({', '.join(f'{k} {v}' for k, v in per_repo.items())})"
@@ -985,7 +995,7 @@ def cmd_calls(args):
     # `media-breakpoint-up`, which is included 482 times.
     direct: list[str] = []
 
-    for rec in read_index(args.name):
+    for rec in read_index():
         if rec["k"] == "func" and rec.get("name") == on:
             defined_at.append(f"{rec['repo']}/{rec['path']}:{rec['line']}")
         if rec["k"] == "class":
@@ -1163,7 +1173,7 @@ def target_settled(args, ranked) -> dict[str, str]:
     if not getattr(args, "target_path", None):
         return {}
     repo = getattr(args, "target_repo", None) or configured_solution()["name"]
-    target = [r for r in read_index(args.name)
+    target = [r for r in read_index()
               if r["k"] in kinds_for(args) and r["repo"] == repo
               and fnmatch.fnmatch(r["path"], args.target_path)]
     if not target:
@@ -1336,10 +1346,10 @@ def cmd_conform(args):
     `shape` says what is ALWAYS true of the source. Nothing else checks that the
     output kept it. This does: same measure, both sides, difference reported.
     """
-    source = [r for r in read_index(args.name) if r["k"] == "class"
+    source = [r for r in read_index() if r["k"] == "class"
               and fnmatch.fnmatch(r["path"], args.path)
               and (not args.repo or r["repo"] == args.repo)]
-    target = [r for r in read_index(args.name) if r["k"] == "class"
+    target = [r for r in read_index() if r["k"] == "class"
               and fnmatch.fnmatch(r["path"], args.target_path)
               and (not args.target_repo or r["repo"] == args.target_repo)]
 
@@ -1383,7 +1393,7 @@ def cmd_conform(args):
 def cmd_imports(args):
     sym = args.symbol_arg
     modules, subclasses = [], []
-    for rec in read_index(args.name):
+    for rec in read_index():
         if not matches(rec, args):
             continue
         if rec["k"] == "module":
@@ -1432,7 +1442,7 @@ def cmd_imports(args):
     # that matter go downward through inheritance: change a base template and
     # every level below it renders differently, and none of them errors.
     if args.chain and subclasses:
-        classes = [r for r in read_index(args.name) if r["k"] == "class"]
+        classes = [r for r in read_index() if r["k"] == "class"]
         frontier = {name for _, _, name in subclasses}
         seen_names, level = set(frontier) | {sym}, 1
         while frontier and level < args.depth:
@@ -1464,7 +1474,7 @@ def cmd_deps(args):
     version -- which is how you find out whether a dependency an option implies
     is already paid for.
     """
-    everything = [r for r in read_index(args.name, include_references=True)
+    everything = [r for r in read_index(include_references=True)
                   if r["k"] == "manifest"]
     records = [r for r in everything
                if (not args.repo or r["repo"] == args.repo)
@@ -1484,7 +1494,7 @@ def cmd_deps(args):
                      f"\nWhatever it imports is satisfied by the ambient"
                      f" environment and by nothing it carries.")
 
-    roles = indexed_roles(args.name)
+    roles = indexed_roles()
     if args.on:
         want = args.on.lower()
         print(f"declares {args.on!r}\n")
@@ -1581,7 +1591,7 @@ def cmd_practice(args):
     """
     tokens = [args.on] + list(args.versus or ())
     token_set = set(tokens)
-    roles = indexed_roles(args.name)
+    roles = indexed_roles()
 
     # (repo, token) -> module paths; and the most recent touch per pair.
     users: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -1589,7 +1599,7 @@ def cmd_practice(args):
     any_use: dict[str, set[str]] = defaultdict(set)
     lang_modules: dict[str, int] = defaultdict(int)
 
-    for rec in read_index(args.name, include_references=True):
+    for rec in read_index(include_references=True):
         if args.lang and language_of(rec) != args.lang:
             continue
         if args.path and not fnmatch.fnmatch(rec.get("path", ""), args.path):
@@ -1679,11 +1689,9 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_config)
 
     p = sub.add_parser("meta", help="what this index covers")
-    p.add_argument("--name", default="default")
     p.set_defaults(fn=cmd_meta)
 
     p = sub.add_parser("layers", help="what parts exist")
-    p.add_argument("--name", default="default")
     p.add_argument("--repo")
     p.add_argument("--depth", type=int, default=0, help="roll up to N path segments")
     p.add_argument("--path", help="glob on the file path")
@@ -1735,7 +1743,6 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_calls)
 
     p = sub.add_parser("deps", help="what each codebase declares it depends on")
-    p.add_argument("--name", default="default")
     p.add_argument("--repo", help="restrict to one repository")
     p.add_argument("--path", help="glob on the manifest path")
     p.add_argument("--on", metavar="NAME", help="who declares this package, and at what version")
@@ -1744,7 +1751,6 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("practice",
                        help="how the reference corpus resolves a choice vs. the exemplar")
-    p.add_argument("--name", default="default")
     p.add_argument("--on", required=True, metavar="TOKEN",
                    help="an import, call, base or decorator, e.g. pathlib")
     p.add_argument("--versus", action="append", metavar="TOKEN", default=[],
@@ -1754,7 +1760,6 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_practice)
 
     p = sub.add_parser("conform", help="does the generated layer still keep the contract")
-    p.add_argument("--name", default="default")
     p.add_argument("--path", required=True, help="glob selecting the source layer")
     p.add_argument("--repo", help="restrict the source side to one repository")
     p.add_argument("--target-path", required=True, help="glob selecting the generated layer")
@@ -1781,7 +1786,6 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_questions)
 
     p = sub.add_parser("proof", help="how a codebase proves itself -- tests, entry points")
-    p.add_argument("--name", default="default")
     p.add_argument("--repo")
     p.add_argument("--limit", type=int, default=20)
     p.set_defaults(fn=cmd_proof)

@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 import segmenters
-from _common import configured_repositories
+from _common import INDEX_ENV, configured_repositories
 from extractors import REGISTRY
 
 REQUIRED = {
@@ -442,9 +442,6 @@ def check_container(fmt: str, root: Path) -> list[str]:
 # ---------------------------------------------------------------- queries
 
 
-QUERY_INDEX = "_selftest"
-
-
 def _module(repo, path, imports, when):
     return {"k": "module", "lang": "python", "repo": repo, "path": path,
             "pkg": "", "dir": path.rsplit("/", 1)[0] if "/" in path else "",
@@ -462,12 +459,22 @@ def _class(repo, path, name, when):
 
 
 def build_query_fixture() -> Path:
-    """A tiny index with all three roles, written straight to the workspace.
+    """A tiny index with all three roles, written straight into a scratch tree.
 
     Synthetic rather than derived from a real codebase on purpose: these checks
     are about *invariants that must hold whatever is indexed*, and a fixture
     that can be reasoned about completely is the only way to assert them
     exactly. `ex` is the exemplar, `ref` the reference, `tgt` the target.
+
+    Isolated by `APP_BUILDER_INDEX`, which the caller sets before this runs.
+    That isolation is not a convenience: there is one index location now, so a
+    fixture written without it would overwrite the real index -- a selftest
+    that destroys the thing it is testing.
+
+    The roles are expressed the only way they can be, by which directory each
+    repository is written into. There is no roles map to write, which is
+    itself the property under test: a fixture *cannot* construct the
+    disagreement between an index and its metadata that used to be possible.
 
     Dates are chosen so `practice` has a fossil to find: `ex` last touched
     `oldlib` well over a year before it last touched `newlib`, which is the
@@ -476,12 +483,10 @@ def build_query_fixture() -> Path:
     import json
     import time
 
-    from _common import workspace
+    from _common import index_file, index_meta, index_path, index_root, rollup_path
 
     now = int(time.time())
     two_years = now - 2 * 365 * 24 * 3600
-    ws = workspace(QUERY_INDEX)
-    ws.mkdir(parents=True, exist_ok=True)
 
     records = [
         # exemplar: uses both, but its oldlib modules are ancient
@@ -506,14 +511,21 @@ def build_query_fixture() -> Path:
          "commit": 0, "ecosystem": "npm", "deps": {"leftpad": "^1.0.0"},
          "dev_deps": {}, "scripts": {"build": "tsc"}},
     ]
-    (ws / "index.jsonl").write_text(
-        "".join(json.dumps(r) + "\n" for r in records), encoding="utf-8")
-    (ws / "meta.json").write_text(json.dumps({
-        "name": QUERY_INDEX, "roles": {"ex": "exemplar", "ref": "reference",
-                                       "tgt": "target"},
-        "repos": ["ex", "ref", "tgt"], "target": "tgt", "shallow": [],
+    roles = {"ex": "exemplar", "ref": "reference", "tgt": "target"}
+    for repo, role in roles.items():
+        mine = [r for r in records if r["repo"] == repo]
+        index_path(role, repo).mkdir(parents=True, exist_ok=True)
+        index_file(role, repo).write_text(
+            "".join(json.dumps(r) + "\n" for r in mine), encoding="utf-8")
+        index_meta(role, repo).write_text(json.dumps({
+            "repo": repo, "role": role, "shallow": False,
+            "files": sum(1 for r in mine if r["k"] == "module"),
+            "classes": sum(1 for r in mine if r["k"] == "class"),
+        }) + "\n", encoding="utf-8")
+    rollup_path().write_text(json.dumps({
+        "repos": sorted(roles), "target": "tgt", "roles": roles, "shallow": [],
     }) + "\n", encoding="utf-8")
-    return ws
+    return index_root()
 
 
 def run_query(*argv) -> str:
@@ -522,9 +534,7 @@ def run_query(*argv) -> str:
     import query
 
     buf = io.StringIO()
-    # `--name` belongs to each subcommand, not to the parser, so the command
-    # has to come first.
-    argv = [argv[0], "--name", QUERY_INDEX, *argv[1:]]
+    argv = list(argv)
     try:
         with contextlib.redirect_stdout(buf):
             query.main(argv)
@@ -537,6 +547,61 @@ def run_query(*argv) -> str:
     return buf.getvalue()
 
 
+def check_corpus_guard() -> list[str]:
+    """The corpus must not be walkable from a codebase that contains it.
+
+    It lives inside the skill, so anything that walks the skill -- or the
+    checkout above it -- passes right by twenty-three other people's
+    repositories. `_is_skipped_dir` prunes it today only because the name
+    starts with a dot, which is a naming coincidence rather than a rule, so
+    this test removes the dot and asserts the guard still holds.
+
+    Worth testing rather than reasoning about, because the failure is not an
+    error. A reference swept in as an exemplar votes: it outnumbers the one
+    codebase whose conventions were supposed to be the contract, and the output
+    stays perfectly plausible while describing nobody's code.
+    """
+    import _common
+    bad = []
+    tmp = Path(tempfile.mkdtemp(prefix="ab-corpus-guard-"))
+    corpus_dir, skill_root = _common.CORPUS_DIR, _common.skill_root
+    try:
+        (tmp / "mine").mkdir()
+        (tmp / "mine" / "app.py").write_text("x = 1", encoding="utf-8")
+        fake = tmp / "reference_corpus"
+        (fake / "django" / "django").mkdir(parents=True)
+        (fake / "django" / "django" / "models.py").write_text(
+            "class Model: pass", encoding="utf-8")
+
+        _common.CORPUS_DIR = "reference_corpus"   # the dot deliberately gone
+        _common.skill_root = lambda: tmp
+        if _common._is_skipped_dir("reference_corpus"):
+            bad.append("corpus guard: fixture is not testing anything --"
+                       " the name is still pruned by _is_skipped_dir")
+
+        names = lambda root: sorted(
+            p.name for p in _common.iter_source_files(root, 400_000,
+                                                      extensions=(".py",)))
+        outside = names(tmp)
+        if "models.py" in outside:
+            bad.append("corpus guard: walking a tree that CONTAINS the corpus"
+                       f" reached a reference codebase -- got {outside}")
+        if "app.py" not in outside:
+            bad.append(f"corpus guard: the containing tree's own code was lost:"
+                       f" {outside}")
+        # One-directional: indexing a reference means the root is already
+        # inside the corpus, and a guard that fired here would report every
+        # reference as empty -- which `practice` would then read as evidence.
+        inside = names(fake / "django")
+        if "models.py" not in inside:
+            bad.append("corpus guard: a reference indexed on its own came back"
+                       f" empty -- the guard fires in both directions: {inside}")
+    finally:
+        _common.CORPUS_DIR, _common.skill_root = corpus_dir, skill_root
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
+
+
 def check_queries() -> list[str]:
     """The invariants no extractor test can reach.
 
@@ -546,6 +611,37 @@ def check_queries() -> list[str]:
     times.
     """
     bad = []
+
+    # A repository's role is the directory it sits in, and this is the proof:
+    # move the directory, change nothing else, and what the contract commands
+    # can see changes with it.
+    #
+    # Worth a test of its own because it is the property that replaced the
+    # roles map, and it is the reason that map could go. A map can disagree
+    # with the index it describes -- be absent, be stale, name a repository
+    # that is no longer there -- and when it did, every reference was silently
+    # promoted to exemplar and the answers stayed plausible. A directory
+    # cannot disagree about where it is.
+    from _common import index_path, read_index
+
+    seen = {r["repo"] for r in read_index()}
+    if seen != {"ex", "tgt"}:
+        bad.append(f"roles: contract commands should see the exemplar and the"
+                   f" target, saw {sorted(seen)}")
+    moved_from, moved_to = index_path("exemplar", "ex"), index_path("reference", "ex")
+    shutil.move(str(moved_from), str(moved_to))
+    try:
+        seen = {r["repo"] for r in read_index()}
+        if "ex" in seen:
+            bad.append("roles: a repository moved into reference_corpus/ still"
+                       " reached a contract computation -- the role is not the"
+                       f" location, saw {sorted(seen)}")
+        if "ex" not in {r["repo"] for r in read_index(include_references=True)}:
+            bad.append("roles: a repository moved into reference_corpus/ became"
+                       " invisible to `practice` too -- it should be evidence,"
+                       " not gone")
+    finally:
+        shutil.move(str(moved_to), str(moved_from))
 
     out = run_query("shape", "--path", "*/models/*")
     if "ref" in out or "Ref1" in out:
@@ -620,9 +716,22 @@ def main() -> int:
             for p in problems:
                 print(f"       {p}")
             failures += problems
-        ws = None
+        problems = check_corpus_guard()
+        print(f"  {'FAIL' if problems else 'ok  '} {'corpus':<12} "
+              f"not walkable from a codebase that contains it")
+        for p in problems:
+            print(f"       {p}")
+        failures += problems
+
+        # Pointed somewhere disposable *before* the fixture is built. There is
+        # one index location now, so a fixture written without this would
+        # overwrite whatever the user has actually indexed -- and it would
+        # happen on a run whose whole purpose is to prove nothing is broken.
+        ws = Path(tempfile.mkdtemp(prefix="ab-selftest-index-"))
+        was = os.environ.get(INDEX_ENV)
+        os.environ[INDEX_ENV] = str(ws)
         try:
-            ws = build_query_fixture()
+            build_query_fixture()
             problems = check_queries()
             print(f"  {'FAIL' if problems else 'ok  '} {'queries':<12} "
                   f"roles, practice, deps, layers --lang")
@@ -630,8 +739,11 @@ def main() -> int:
                 print(f"       {p}")
             failures += problems
         finally:
-            if ws is not None:
-                shutil.rmtree(ws, ignore_errors=True)
+            if was is None:
+                os.environ.pop(INDEX_ENV, None)
+            else:
+                os.environ[INDEX_ENV] = was
+            shutil.rmtree(ws, ignore_errors=True)
     finally:
         shutil.rmtree(root, ignore_errors=True)
 

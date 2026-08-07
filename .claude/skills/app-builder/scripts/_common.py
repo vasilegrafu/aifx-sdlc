@@ -101,7 +101,7 @@ def corpus_root() -> Path:
     """Where fetched reference codebases live: `<skill>/.reference_corpus/`.
 
     Inside the skill rather than at the checkout root, for the same reason
-    `.data/` is: it is the skill's working data, so the rule that keeps it out
+    `.indexes/` is: it is the skill's working data, so the rule that keeps it out
     of git travels with the skill instead of being a line in a root
     `.gitignore` that a different checkout would not have.
 
@@ -111,10 +111,10 @@ def corpus_root() -> Path:
     The leading dot also means `_is_skipped_dir` skips it, so indexing a
     codebase can never wander into twenty other codebases.
 
-    A sibling of `.data/`, not a directory inside it. They are both derived,
-    but they are not equally disposable: `.data/` rebuilds from local disk in
-    minutes and the documentation says so, while this is gigabytes over the
-    network. Nesting them would make "delete `.data/` and rebuild" quietly
+    A sibling of `.indexes/`, not a directory inside it. They are both derived,
+    but they are not equally disposable: `.indexes/` rebuilds from local disk
+    in minutes and the documentation says so, while this is gigabytes over the
+    network. Nesting them would make "delete `.indexes/` and rebuild" quietly
     mean "re-clone the corpus".
     """
     return skill_root() / CORPUS_DIR
@@ -253,103 +253,229 @@ def solution_dir() -> Path:
     return configured_solution()["path"]
 
 
-def workspace(name: str) -> Path:
-    """Where an index lives: `<skill>/.data/<name>/`.
+INDEX_DIR = ".indexes"
 
-    Gitignored, and it has to be -- the skill around it is tracked, so a
-    blanket `git add .` would otherwise commit structure derived from someone
-    else's repository along with the skill. Everything in here is derived and
-    safe to delete: `index.py` rebuilds it in seconds.
+# One directory per role, named for the config key that fills it, so the three
+# names in `config.json` and the three names on disk are the same three words.
+#
+# The role is the *location*, not a field. That is the whole point of this
+# layout: holding references out of a contract computation used to mean reading
+# a `roles` map from meta.json and filtering on it, so a meta.json that lost the
+# key -- or predated it -- silently promoted twenty-three reference codebases to
+# exemplars and answered anyway. There is no key here to be absent. A reference
+# is held out by not opening `reference_corpus/`.
+ROLE_DIRS = {"exemplar": "exemplar_corpus",
+             "reference": "reference_corpus",
+             "target": "solution"}
+DEFAULT_ROLE = "exemplar"
+
+# Streaming order, and it is deliberate rather than alphabetical: what the
+# solution already decided comes before what the sources say, and references
+# come last because most commands never reach them at all.
+ROLE_ORDER = ("exemplar", "target", "reference")
+CONTRACT_ROLES = ("exemplar", "target")
+
+
+INDEX_ENV = "APP_BUILDER_INDEX"
+
+
+def index_root() -> Path:
+    """`<skill>/.indexes/` -- what was derived from the codebases.
+
+    `APP_BUILDER_INDEX` moves it elsewhere. This is what `--name` used to be
+    for, and the environment is the better home for it: a *name* sat in the
+    same sentence as repository names and was read as one often enough that
+    the troubleshooting notes had to say it was not. A path cannot be mistaken
+    for a repository. It is also what lets the selftest build a fixture index
+    without writing over the real one -- isolation the named workspaces used
+    to provide, and which would otherwise have been lost with them.
+
+    A sibling of `.reference_corpus/`, which holds the codebases themselves, at
+    a mirrored path: `.reference_corpus/django/` is the source and
+    `.indexes/reference_corpus/django/` is what this skill knows about it.
+
+    Gitignored, and it has to be -- the skill around it is tracked, so a blanket
+    `git add .` would otherwise commit structure derived from someone else's
+    repository along with the skill. The leading dot is load bearing for a
+    second reason: it is what makes `_is_skipped_dir` prune this directory, so
+    indexing a codebase that contains the skill cannot index the index.
     """
-    return skill_root() / ".data" / name
+    override = os.environ.get(INDEX_ENV)
+    return Path(override).expanduser() if override else skill_root() / INDEX_DIR
 
 
-def shard_name(repo: str) -> str:
-    """A repository's file name inside a workspace. Not the repo name verbatim:
-    a name is free text from a config file and reaches the filesystem here."""
-    safe = "".join(c if (c.isalnum() or c in "-_.") else "_" for c in repo)
-    return f"{safe or 'repo'}.jsonl"
+def role_dir(role: str) -> Path:
+    return index_root() / ROLE_DIRS.get(role, ROLE_DIRS[DEFAULT_ROLE])
 
 
-def index_path(name: str, repo: str | None = None) -> Path:
-    """Where a repository's records live, or the workspace holding all of them.
+def safe_name(repo: str) -> str:
+    """A repository's directory name. Not the repo name verbatim: a name is free
+    text from a config file and reaches the filesystem here.
 
-    One file per repository rather than one file for everything. The whole point
-    is that a rebuild can be *partial*: editing one file in the target used to
-    mean re-reading every reference codebase as well, which is minutes of work to
-    learn something about seventy files. Each repository is independently
-    readable and independently replaceable, and `read_index` streams whichever
-    shards are present.
+    Two config names can sanitise to one directory. That is now a collision
+    `index.py` must refuse rather than absorb -- as files they merely
+    overwrote, as directories they would interleave two codebases into one and
+    report the blend as a convention.
     """
-    ws = workspace(name)
-    return ws / shard_name(repo) if repo else ws
+    return "".join(c if (c.isalnum() or c in "-_.") else "_" for c in repo) or "repo"
 
 
-def index_shards(name: str) -> list[Path]:
-    ws = workspace(name)
-    return sorted(ws.glob("*.jsonl")) if ws.is_dir() else []
+def index_path(role: str, repo: str) -> Path:
+    """Where one repository's index lives: `.indexes/<role>/<repo>/`.
 
+    One directory per repository rather than one file for everything, so a
+    rebuild can be *partial*: editing one file in the solution used to mean
+    re-reading every reference codebase as well, minutes of work to learn
+    something about seventy files.
 
-def indexed_roles(name: str) -> dict[str, str]:
-    """`{repo: role}` as the index recorded it.
-
-    Read from the index rather than from the config, because the config can
-    change after a build and the records cannot. An index built before roles
-    existed reports none, and everything in it is treated as an exemplar --
-    which is what it was.
+    A directory rather than a single shard file because the stats belong beside
+    the records. When a repository's totals lived in one shared meta.json, a
+    partial rebuild had to merge what it did not rebuild back in, and the
+    version that forgot to merge dropped every untouched repository -- leaving
+    the summary describing three repositories while twenty shards sat on disk.
+    Each repository now owns its own totals, and there is nothing to merge.
     """
-    try:
-        meta = json.loads((workspace(name) / "meta.json").read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return {}
-    return dict(meta.get("roles") or {})
+    return role_dir(role) / safe_name(repo)
 
 
-def reference_repos(name: str) -> frozenset:
-    return frozenset(r for r, role in indexed_roles(name).items()
-                     if role == "reference")
+def index_file(role: str, repo: str) -> Path:
+    return index_path(role, repo) / "index.jsonl"
 
 
-def read_index(name: str, include_references: bool = False):
-    """Yield index records. Streams -- the file can be larger than memory.
+def index_meta(role: str, repo: str) -> Path:
+    return index_path(role, repo) / "meta.json"
+
+
+def rollup_path() -> Path:
+    """`.indexes/meta.json` -- totals across every repository, and the claims
+    map, which is global by nature: its job is telling two repositories apart."""
+    return index_root() / "meta.json"
+
+
+def indexed_repositories(roles=ROLE_ORDER) -> list[dict]:
+    """What is actually on disk, in role order. The index describes itself.
+
+    Read from the tree rather than from the config, because the config can
+    change after a build and the records cannot.
+    """
+    out = []
+    for role in roles:
+        directory = role_dir(role)
+        if not directory.is_dir():
+            continue
+        for child in sorted(directory.iterdir()):
+            records = child / "index.jsonl"
+            if records.is_file():
+                out.append({"role": role, "dir": child.name,
+                            "records": records, "meta": child / "meta.json"})
+    return out
+
+
+def indexed_roles() -> dict[str, str]:
+    """`{repo: role}` as the tree records it.
+
+    Derived from where each repository sits, not from a field anyone wrote:
+    the directory is the role. Read from the index rather than from the config
+    because the config can change after a build and the records cannot -- but
+    unlike the roles map this replaces, it cannot be absent or disagree, since
+    a repository with no role has nowhere to be.
+
+    For display. Nothing decides anything by it; `read_index` holds references
+    out by not opening their directory.
+    """
+    out = {}
+    for shard in indexed_repositories():
+        repo = shard["dir"]
+        try:
+            repo = json.loads(shard["meta"].read_text(encoding="utf-8")).get("repo") or repo
+        except (OSError, ValueError):
+            pass
+        out[repo] = shard["role"]
+    return out
+
+
+def read_index(include_references: bool = False):
+    """Yield index records. Streams -- the index can be larger than memory.
 
     Reference repositories are held out unless asked for. That default is the
     mechanism behind `configured_references`: a reference is evidence about the
     wider world, and the moment it reaches a command that computes what is
     ALWAYS true, the contract being reproduced is no longer the exemplar's.
     Opting in is one keyword and `practice` is the only caller that uses it.
+
+    A held-out repository is not opened, not filtered -- it is in a directory
+    this call never walks into.
     """
-    shards = index_shards(name)
-    if not shards:
+    wanted = indexed_repositories(ROLE_ORDER if include_references
+                                  else CONTRACT_ROLES)
+    if not wanted:
+        # Two different answers, and conflating them turns a real finding into
+        # what looks like a tooling problem: nothing built at all, versus an
+        # index holding references and nothing to hold them out *of*.
+        if indexed_repositories():
+            sys.exit(
+                f"{display_path(index_root())} holds reference codebases only.\n"
+                "References are evidence, never a template, so no contract can be"
+                " computed from them.\nConfigure an `exemplar_corpus` or a"
+                " `solution`, then rebuild:  scripts/index.py"
+            )
         sys.exit(
-            f"no index named {name!r} at {display_path(workspace(name))}\n"
-            f"build one first:  ./.venv/Scripts/python.exe "
-            f".claude/skills/app-builder/scripts/index.py --name {name} <codebase-root>..."
+            f"no index at {display_path(index_root())}\n"
+            "build one first:  ./.venv/Scripts/python.exe "
+            ".claude/skills/app-builder/scripts/index.py"
         )
-    held_out = frozenset() if include_references else reference_repos(name)
-    for path in shards:
-        # A held-out repository's shard is not opened at all, which is the
-        # incidental reward for splitting the file: the common case reads only
-        # the exemplars and the target.
-        if not include_references and path.stem in {shard_name(r).removesuffix(".jsonl")
-                                                    for r in held_out}:
-            continue
-        with path.open("r", encoding="utf-8") as fh:
+    for shard in wanted:
+        with shard["records"].open("r", encoding="utf-8") as fh:
             for line in fh:
                 line = line.strip()
                 if not line:
                     continue
-                rec = json.loads(line)
-                # Still checked per record: a shard name is derived from a repo
-                # name and two names can sanitise to one file.
-                if rec.get("repo") in held_out:
-                    continue
-                yield rec
+                yield json.loads(line)
 
 
 def _is_skipped_dir(name: str) -> bool:
     return (name in SKIP_DIRS or name.startswith(".")
             or name.lower().startswith(SKIP_PREFIXES))
+
+
+def _is_corpus_dir(path: Path, corpus: Path) -> bool:
+    """Whether this directory *is* the reference corpus.
+
+    A second lock on the same door. `_is_skipped_dir` already prunes it,
+    but only because `.reference_corpus` happens to start with a dot -- the
+    corpus is protected by a naming coincidence, not by a rule, and dropping
+    the dot from `CORPUS_DIR` would silently make twenty-three reference
+    codebases walkable as part of whatever contains them.
+
+    That is the worst failure this skill has, not a small one: a reference
+    swept in as an exemplar does not fail, it votes. Twenty-three of them
+    outnumber one exemplar, and the contract being reproduced quietly becomes
+    an average of the internet -- exactly what `configured_references` exists
+    to prevent, arriving through the walk instead of through the config.
+
+    Cheap on purpose: the name is compared first, so the resolve only happens
+    for a directory that could actually be it.
+    """
+    if path.name != corpus.name:
+        return False
+    try:
+        return path.resolve() == corpus
+    except OSError:
+        return False
+
+
+def _walking_inside_corpus(root: Path, corpus: Path) -> bool:
+    """Whether the walk *started* in the corpus -- indexing a reference itself.
+
+    The guard has to be one-directional. Indexing `django` means the root is
+    already inside `.reference_corpus`, and a rule that refused to walk the
+    corpus at all would report every reference as empty.
+    """
+    try:
+        resolved = root.resolve()
+    except OSError:
+        return False
+    return resolved == corpus or corpus in resolved.parents
 
 
 def _is_excluded(relpath: str, excluded: tuple[str, ...]) -> bool:
@@ -402,13 +528,16 @@ def find_files(root: Path, names: tuple[str, ...], max_depth: int = 4) -> list[s
     """
     wanted = {n.lower() for n in names}
     suffixes = tuple(n.lower() for n in names if n.startswith("*"))
+    corpus = corpus_root()
+    guard_corpus = not _walking_inside_corpus(root, corpus)
     out = []
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
         depth = len(here.relative_to(root).parts) if here != root else 0
         if depth >= max_depth:
             dirnames[:] = []
-        dirnames[:] = [d for d in dirnames if not _is_skipped_dir(d)]
+        dirnames[:] = [d for d in dirnames if not _is_skipped_dir(d)
+                       and not (guard_corpus and _is_corpus_dir(here / d, corpus))]
         for fn in filenames:
             low = fn.lower()
             if low in wanted or any(low.endswith(s[1:]) for s in suffixes):
@@ -429,11 +558,14 @@ def iter_source_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = (),
     lowered = tuple(e.lower() for e in extensions)
     excluded = tuple(e.strip("/").lower() for e in exclude if e.strip("/"))
     included = tuple(i.strip("/").lower() for i in include if i.strip("/"))
+    corpus = corpus_root()
+    guard_corpus = not _walking_inside_corpus(root, corpus)
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
         dirnames[:] = [
             d for d in dirnames
             if not _is_skipped_dir(d)
+            and not (guard_corpus and _is_corpus_dir(here / d, corpus))
             and not _is_excluded(rel(here / d, root), excluded)
             and _may_contain_included(rel(here / d, root), included)
         ]
@@ -471,11 +603,14 @@ def iter_py_files(root: Path, max_bytes: int, exclude: tuple[str, ...] = ()):
     linked tree is silently indexed under the wrong repository's name.
     """
     excluded = tuple(e.strip("/").lower() for e in exclude if e.strip("/"))
+    corpus = corpus_root()
+    guard_corpus = not _walking_inside_corpus(root, corpus)
     for dirpath, dirnames, filenames in os.walk(root):
         here = Path(dirpath)
         dirnames[:] = [
             d for d in dirnames
             if not _is_skipped_dir(d)
+            and not (guard_corpus and _is_corpus_dir(here / d, corpus))
             and not _is_excluded(rel(here / d, root), excluded)
         ]
         for fn in filenames:
