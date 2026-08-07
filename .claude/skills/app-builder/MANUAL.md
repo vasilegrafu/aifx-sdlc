@@ -32,7 +32,7 @@ Point it at codebases in `config.json`, at the root of this repository:
 ```json
 {
   "app-builder": {
-    "repositories": [
+    "exemplar_corpus": [
       { "name": "atlas", "path": "D:/Dev.Work/project.finance/solution.atlas" }
     ],
     "solution": "solution.university",
@@ -44,7 +44,7 @@ Point it at codebases in `config.json`, at the root of this repository:
 }
 ```
 
-- **`repositories`** — what to read. `name` is what queries call it.
+- **`exemplar_corpus`** — the codebases you copy. `name` is what queries call it.
 - **`solution`** — where generated code is built. It is indexed too, and once it
   holds a layer it **outranks the sources** for that layer: a convention it
   deliberately dropped will not be reintroduced from a source that still has it.

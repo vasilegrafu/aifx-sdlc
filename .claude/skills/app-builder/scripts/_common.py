@@ -142,7 +142,15 @@ def _repo_records(entries, role: str) -> list[dict]:
 
 def configured_repositories() -> list[dict]:
     """`[{name, path, exists}]` from config. Paths may be relative to the root."""
-    return _repo_records(load_config().get("repositories"), "exemplar")
+    cfg = load_config()
+    # `repositories` was the earlier spelling. Kept for the same reason as
+    # `references`: a renamed key does not fail, it returns nothing -- and a
+    # config with no exemplars produces a skill that reports every layer as
+    # missing rather than saying it was pointed at nothing.
+    entries = cfg.get("exemplar_corpus")
+    if entries is None:
+        entries = cfg.get("repositories")
+    return _repo_records(entries, "exemplar")
 
 
 def configured_references() -> list[dict]:

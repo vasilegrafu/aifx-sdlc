@@ -341,11 +341,11 @@ def cmd_config(args):
     if not repos:
         print("REPOSITORIES  none configured. Add them to the config file:\n")
         print('  "app-builder": {\n'
-              '    "repositories": [{"name": "atlas", "path": "D:/code/atlas"}],\n'
+              '    "exemplar_corpus": [{"name": "atlas", "path": "D:/code/atlas"}],\n'
               '    "solution": "solution"\n'
               '  }')
     else:
-        print("REPOSITORIES")
+        print("EXEMPLARS     what you copy -- their conventions are the contract")
         for r in repos:
             print(f"  {'ok ' if r['exists'] else 'MISSING'}  {r['name']:<20} {r['path']}")
 

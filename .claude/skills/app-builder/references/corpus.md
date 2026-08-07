@@ -69,7 +69,7 @@ Two failures this prevents, both paid for:
 - **Disposable.** Delete any of it and run `fetch.py`. Nothing depends on a
   particular commit — though `meta.json` records which one was measured, so a
   verdict can be traced afterwards.
-- **Never promoted.** Moving a reference into `repositories` to "get more
+- **Never promoted.** Moving a reference into `exemplar_corpus` to "get more
   signal" is the failure, not the fix: it would put an average of the internet
   where the exemplar's contract belongs.
 

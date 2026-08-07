@@ -75,7 +75,7 @@ paths that are already there.
 ```json
 {
   "app-builder": {
-    "repositories": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
+    "exemplar_corpus": [{ "name": "atlas", "path": "D:/code/solution.atlas" }],
     "solution": "solution.university",
     "questions": "many",
     "reference_corpus": [{ "name": "django", "repo": "https://github.com/django/django.git" }]
@@ -87,7 +87,7 @@ paths that are already there.
 
 | Role | Key | What it is for |
 |---|---|---|
-| exemplar | `repositories` | what you copy — its conventions are the contract |
+| exemplar | `exemplar_corpus` | what you copy — its conventions are the contract |
 | target | `solution` | what you build — the later decision, and it wins |
 | reference | `reference_corpus` | what you consult — what the wider world does, and when |
 
@@ -137,7 +137,7 @@ exemplars, at nine times the scale. Measured, not assumed: `shape --path
 django let in. 652 of those are django's. Every ALWAYS row would have described
 a codebase nobody asked to copy.
 
-So: never move a repository from `reference_corpus` to `repositories` to "get more
+So: never move a repository from `reference_corpus` to `exemplar_corpus` to "get more
 signal". That is the failure, not the fix.
 
 **A reference is declared by URL and fetched, not by path.** `repo` names the
@@ -155,7 +155,7 @@ depending on where it runs. `.reference_corpus/` is gitignored and disposable
 like `.data/` -- and must stay so for a second reason, that each clone carries
 its own `.git` and `git add .` over such a directory writes a phantom submodule.
 
-`repositories` and `solution` keep using `path`: they are local by nature.
+`exemplar_corpus` and `solution` keep using `path`: they are local by nature.
 
 **Index how a library is *used*, not how it is written.** A library's own
 repository is mostly its internals, and its internals are written under

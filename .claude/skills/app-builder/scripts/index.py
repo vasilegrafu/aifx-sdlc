@@ -376,7 +376,7 @@ def main() -> int:
         if not targets:
             sys.exit("no roots given and no repositories in config"
                      f" ({load_config()['_file']}).\n"
-                     'Add them under "app-builder": {"repositories": '
+                     'Add them under "app-builder": {"exemplar_corpus": '
                      '[{"name": ..., "path": ...}]}')
         gone = [t for t in targets if not t["exists"]]
         if gone:

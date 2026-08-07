@@ -1,5 +1,11 @@
 {
   "app-builder": {
+    "exemplar_corpus": [
+      {
+        "name": "atlas",
+        "path": "D:/Dev.Work/project.finance/solution.atlas"
+      }
+    ],
     "reference_corpus": [
       {
         "name": "django",
@@ -163,12 +169,6 @@
         "include": [
           "public/examples/ts"
         ]
-      }
-    ],
-    "repositories": [
-      {
-        "name": "atlas",
-        "path": "D:/Dev.Work/project.finance/solution.atlas"
       }
     ],
     "solution": "solution.school",
