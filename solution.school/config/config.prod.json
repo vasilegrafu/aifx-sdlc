@@ -1,6 +1,0 @@
-{
-    "environment": "prod",
-    "database": {
-        "url": "sqlite:///database_storage/school.prod.sqlite3"
-    }
-}
