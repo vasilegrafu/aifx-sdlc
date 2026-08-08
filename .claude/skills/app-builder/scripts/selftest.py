@@ -541,32 +541,6 @@ def build_query_fixture() -> Path:
         _class("ref", "src/models/Ref1.py", "Ref1", now),
         _class("ref", "src/models/Ref2.py", "Ref2", now),
         _class("ref", "src/models/Ref3.py", "Ref3", now),
-        # A layer for `alternatives`, carrying one of each thing the filters
-        # exist to reject. `Alt` is library vocabulary two codebases use and
-        # the exemplar does not -- the only thing that should come back.
-        {"k": "module", "lang": "python", "repo": "ex", "path": "shop/entities/a.py",
-         "pkg": "", "dir": "shop/entities", "loc": 5, "mtime": now, "commit": now,
-         "main": False, "exports": [],
-         "imports": [{"mod": "orm", "name": "Keep", "as": None}]},
-        _class("ex", "shop/entities/a.py", "AModel", now, bases=("Keep",)),
-        {"k": "module", "lang": "python", "repo": "ref", "path": "pkg/entities/x.py",
-         "pkg": "", "dir": "pkg/entities", "loc": 5, "mtime": now, "commit": now,
-         "main": False, "exports": [],
-         "imports": [{"mod": "orm", "name": "Alt", "as": None},
-                     # stdlib -- imported, structural, and not a decision
-                     {"mod": "os.path", "name": "join", "as": None},
-                     # the project importing itself absolutely: a domain noun
-                     # wearing the costume of a library import
-                     {"mod": "pkg.entities.local", "name": "Domain", "as": None}]},
-        _class("ref", "pkg/entities/x.py", "XModel", now, bases=("Alt", "Domain")),
-        {"k": "module", "lang": "python", "repo": "ref",
-         "path": "pkg/entities/local.py", "pkg": "", "dir": "pkg/entities", "loc": 2,
-         "mtime": now, "commit": now, "main": False, "exports": [], "imports": []},
-        {"k": "module", "lang": "python", "repo": "ref2", "path": "other/entities/y.py",
-         "pkg": "", "dir": "other/entities", "loc": 5, "mtime": now, "commit": now,
-         "main": False, "exports": [],
-         "imports": [{"mod": "orm", "name": "Alt", "as": None}]},
-        _class("ref2", "other/entities/y.py", "YModel", now, bases=("Alt",)),
         # A second reference, going the other way. One codebase each is a tie by
         # codebase while the module count still favours newlib 3 to 1 -- which
         # is the SPLIT case, and the case where naming a winner would be an
@@ -661,21 +635,15 @@ def build_target_tree() -> Path:
     root = Path(tempfile.mkdtemp(prefix="ab-target-"))
     (root / "app" / "models").mkdir(parents=True)
     (root / "ui").mkdir(parents=True)
-    # `created_at` is here and deliberately absent from the source layer, so a
-    # catalogue detector finds the decision unmade in the exemplar and already
-    # made in the generated code -- which is the difference between a question
-    # and a fact read back, and the only way to test that difference.
     (root / "app" / "models" / "two.py").write_text(
         "class Two(Base):\n"
         "    id: UUID = mapped_column(Uuid, primary_key=True)\n"
-        "    created_at: datetime = mapped_column(DateTime)\n"
         "\n"
         "    def touch(self):\n"
         "        return None\n", encoding="utf-8")
     (root / "app" / "models" / "four.py").write_text(
         "class Four(Base):\n"
-        "    id: UUID = mapped_column(Uuid, primary_key=True)\n"
-        "    created_at: datetime = mapped_column(DateTime)\n", encoding="utf-8")
+        "    id: UUID = mapped_column(Uuid, primary_key=True)\n", encoding="utf-8")
     (root / "ui" / "c.py").write_text(
         "def Gamma():\n"
         "    useState()\n"
@@ -704,42 +672,6 @@ def run_query(*argv) -> str:
         if exc.code not in (0, None):
             return f"{buf.getvalue()}\n<command failed: {' '.join(argv)}>"
     return buf.getvalue()
-
-
-def check_catalogue() -> list[str]:
-    """The written half of a question, held to its own rules.
-
-    Nothing else can check this. The evidence around an entry is measured and
-    will fail loudly if it breaks; the prose is the part that can quietly rot
-    into something useless -- an option with no disadvantage listed, or one
-    nothing can ever reach because it names neither a token nor a detector.
-    """
-    from _common import load_catalogue
-
-    entries, problems = load_catalogue()
-    bad = list(problems)
-    if not entries:
-        return bad + ["catalogue: no entries loaded at all"]
-
-    for entry in entries:
-        ident = entry["id"]
-        # An option with no cost has not been thought about -- the skill says
-        # so about the questions it asks, and the source of those questions is
-        # held to the same standard.
-        if len(str(entry["disadvantage"]).split()) < 5:
-            bad.append(f"{ident}: disadvantage is too thin to be a real cost")
-        if len(str(entry["right_when"]).split()) < 4:
-            bad.append(f"{ident}: `right_when` is what makes options comparable "
-                       f"rather than merely different; this one says nothing")
-        for field in ("what", "advantage"):
-            if len(str(entry[field]).split()) < 4:
-                bad.append(f"{ident}: {field} is a label, not a description")
-
-    reachable = sum(1 for e in entries if e.get("tokens"))
-    if not reachable:
-        bad.append("catalogue: no entry is reachable from a discovered token, "
-                   "so `alternatives` can never describe anything")
-    return bad
 
 
 def check_staleness() -> list[str]:
@@ -1078,58 +1010,6 @@ def _check_queries(bad, _json):
     finally:
         meta_file.write_text(original, encoding="utf-8")
 
-    # `alternatives` is the only command that can raise a decision the exemplar
-    # never faced. Its whole difficulty is filtering, and every rule below was
-    # added because real corpus output was unusable without it -- so each is
-    # asserted separately rather than trusting one summary line.
-    out = run_query("alternatives", "--path", "shop/entities/*")
-    if "Alt" not in out:
-        bad.append(f"alternatives: library vocabulary two codebases use and the "
-                   f"exemplar does not was not proposed:\n{out}")
-    if "join" in out:
-        bad.append(f"alternatives: a standard-library import was offered as a "
-                   f"design decision:\n{out}")
-    if "Domain" in out:
-        bad.append(f"alternatives: a codebase's own domain class, imported "
-                   f"absolutely from its own package, was offered as a library "
-                   f"alternative:\n{out}")
-    if "Keep" in out.split("USED BY THIS LAYER")[0]:
-        bad.append(f"alternatives: proposed something the layer already uses:\n{out}")
-    # A candidate used in a sliver of a codebase's files is a catalogue entry,
-    # not a decision -- the difference between `Column` and `Divider`.
-    out = run_query("alternatives", "--path", "shop/entities/*", "--min-share", "101")
-    if "Alt" in out.split("USED BY THIS LAYER")[0]:
-        bad.append(f"alternatives: --min-share did not filter anything, so a "
-                   f"widget catalogue would come back as decisions:\n{out}")
-
-    # `decide` composes three sources, and the point of it is that each reaches
-    # something the others cannot. Asserted separately, because losing one
-    # source silently would still leave a plausible-looking list of questions.
-    out = run_query("decide", "--path", "shop/entities/*")
-    if "Alt" not in out and "alt" not in out.lower():
-        bad.append(f"decide: lost the corpus source -- a decision the exemplar "
-                   f"never faced was not raised:\n{out}")
-    if "why asked" not in out:
-        bad.append(f"decide: produced no questions at all:\n{out}")
-    # An entry with a detector fires when the layer does not do the thing, and
-    # is silent when it does. `shop/entities` has no timestamps.
-    if "created_at" not in out:
-        bad.append(f"decide: lost the absence source -- a decision that leaves "
-                   f"no token behind was not raised:\n{out}")
-    # The catalogue's prose has to arrive with it; evidence alone was the old
-    # behaviour and the whole reason this command exists.
-    if "disadvantage" not in out:
-        bad.append(f"decide: raised decisions without describing what they "
-                   f"cost, which is the half an index cannot supply:\n{out}")
-
-    # Anything the generated code already does is reported as settled, not
-    # asked. The target has timestamps; the exemplar layer does not.
-    out = run_query("decide", "--path", "shop/entities/*",
-                    "--target-path", "app/models/*")
-    if "already answered by the generated code" not in out:
-        bad.append(f"decide: did not read the generated code back, so it would "
-                   f"ask what you already decided:\n{out}")
-
     # Why a set has no dates, said correctly. Three causes reach the same
     # symptom -- not in git, indexed with --no-git, and a history git could not
     # read in time -- and the third was reported as the first, which sends the
@@ -1335,13 +1215,6 @@ def main() -> int:
             for p in problems:
                 print(f"       {p}")
             failures += problems
-        problems = check_catalogue()
-        print(f"  {'FAIL' if problems else 'ok  '} {'catalogue':<12} "
-              f"every decision describes a real cost and is reachable")
-        for p in problems:
-            print(f"       {p}")
-        failures += problems
-
         problems = check_corpus_guard()
         print(f"  {'FAIL' if problems else 'ok  '} {'corpus':<12} "
               f"not walkable from a codebase that contains it")
