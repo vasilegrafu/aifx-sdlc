@@ -1031,7 +1031,7 @@ def _check_queries(bad, _json):
 
     # A function family has a contract too, and until `--kind func` existed this
     # command could not see one -- every React, hook and handler family the skill
-    # can generate had no rung-8 check at all.
+    # can generate had no step-8 check at all.
     out = run_query("conform", "--kind", "func", "--repo", "ex",
                     "--path", "ui/*", "--target-repo", "tgt",
                     "--target-path", "ui/*")

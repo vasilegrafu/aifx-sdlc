@@ -1711,7 +1711,7 @@ def cmd_conform(args):
     `--kind func` is not a refinement, it is the difference between this command
     working and not existing. A React component, a hook and a route handler are
     functions, and while this read classes only, every function family this skill
-    can generate had **no rung-8 check at all** -- the one step that asks whether
+    can generate had **no step-8 check at all** -- the one step that asks whether
     the output still keeps the contract simply had nothing to say about half of
     what the skill builds.
     """
