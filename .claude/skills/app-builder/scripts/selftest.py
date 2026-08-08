@@ -546,30 +546,21 @@ def build_query_fixture() -> Path:
         # is the SPLIT case, and the case where naming a winner would be an
         # artefact of argument order rather than a measurement.
         _module("ref2", "src/legacy.py", ["oldlib"], now),
-        # A registration chain, and a decoy for it. Both repositories own a
+        # A registration chain, and a decoy for it. Two repositories own a
         # directory called `models`, which is entirely ordinary -- and the hop
         # after a barrel is a bare directory name, so an unscoped chain claims
         # the other codebase's file as part of this one's wiring.
         _module("ex", "app/models/__init__.py", ["Widget"], now),
         _module("ex", "app/registry.py", ["models"], now),
-        _module("tgt", "app/wiring.py", ["models"], now),
-        # target: unanimous on the id form, split on `touch`
-        _class("tgt", "app/models/Two.py", "Two", now, ann="UUID",
-               methods=("touch",)),
-        _class("tgt", "app/models/Four.py", "Four", now, ann="UUID"),
-        # A function layer on both sides -- components, whose contract is what
-        # they call. Every source one calls `useConfig` and `useState`; the
-        # generated pair keeps `useState` and drops `useConfig`, which is
-        # exactly the silent departure `conform` exists to name and which it
-        # could not see at all while it read classes only.
-        _module("ex", "ui/a.tsx", [], now),
-        _module("ex", "ui/b.tsx", [], now),
-        _func("ex", "ui/a.tsx", "Alpha", now, invokes=("useState", "useConfig")),
-        _func("ex", "ui/b.tsx", "Beta", now, invokes=("useState", "useConfig")),
-        _module("tgt", "ui/c.tsx", [], now),
-        _module("tgt", "ui/d.tsx", [], now),
-        _func("tgt", "ui/c.tsx", "Gamma", now, invokes=("useState", "useToast")),
-        _func("tgt", "ui/d.tsx", "Delta", now, invokes=("useState", "useToast")),
+        _module("ex2", "app/wiring.py", ["models"], now),
+        # A function layer on the source side -- components, whose contract is
+        # what they call. Every one calls `useConfig` and `useState`; the
+        # generated pair on disk keeps `useState` and drops `useConfig`, which
+        # is the silent departure `conform` exists to name.
+        _module("ex", "ui/a.py", [], now),
+        _module("ex", "ui/b.py", [], now),
+        _func("ex", "ui/a.py", "Alpha", now, invokes=("useState", "useConfig")),
+        _func("ex", "ui/b.py", "Beta", now, invokes=("useState", "useConfig")),
         # Two functions with nothing whatever in common, so their intersection
         # is empty and there is no contract to check. `conform` used to call
         # that "the target keeps everything the source contracts", which is
@@ -599,8 +590,12 @@ def build_query_fixture() -> Path:
          "commit": 0, "ecosystem": "npm", "deps": {"refpkg": "^2.0.0"},
          "dev_deps": {}, "scripts": {}},
     ]
-    roles = {"ex": "exemplar", "ref": "reference", "ref2": "reference",
-             "tgt": "target"}
+    # No target. The generated application is not indexed any more -- it lives
+    # on disk and is read fresh -- so a fixture that put one in the index would
+    # be testing an arrangement that no longer exists. `build_target_tree`
+    # writes the real files.
+    roles = {"ex": "exemplar", "ex2": "exemplar", "ref": "reference",
+             "ref2": "reference"}
     for repo, role in roles.items():
         mine = [r for r in records if r["repo"] == repo]
         index_path(role, repo).mkdir(parents=True, exist_ok=True)
@@ -617,10 +612,47 @@ def build_query_fixture() -> Path:
     # to weigh exactly those dates. Marked here so the marking cannot quietly
     # go away, and kept off `ex` because its row is asserted positionally.
     rollup_path().write_text(json.dumps({
-        "repos": sorted(roles), "target": "tgt", "roles": roles,
+        "repos": sorted(roles), "target": None, "roles": roles,
         "shallow": ["ref"],
     }) + "\n", encoding="utf-8")
     return index_root()
+
+
+def build_target_tree() -> Path:
+    """The generated application, as real files on disk.
+
+    Not in the index, because the real one is not either. `conform` and
+    `questions --target-path` read the target by walking and parsing it at the
+    moment they are asked, so a fixture that handed them prepared records would
+    exercise a path that no longer exists.
+
+    Two layers, each shaped to make one thing fail loudly if it regresses:
+    the models agree on the form of `id` and disagree about `touch`, so one
+    candidate is settled by the code and one stays a live question; and the
+    components keep `useState` while dropping the `useConfig` that every source
+    component calls.
+    """
+    root = Path(tempfile.mkdtemp(prefix="ab-target-"))
+    (root / "app" / "models").mkdir(parents=True)
+    (root / "ui").mkdir(parents=True)
+    (root / "app" / "models" / "two.py").write_text(
+        "class Two(Base):\n"
+        "    id: UUID = mapped_column(Uuid, primary_key=True)\n"
+        "\n"
+        "    def touch(self):\n"
+        "        return None\n", encoding="utf-8")
+    (root / "app" / "models" / "four.py").write_text(
+        "class Four(Base):\n"
+        "    id: UUID = mapped_column(Uuid, primary_key=True)\n", encoding="utf-8")
+    (root / "ui" / "c.py").write_text(
+        "def Gamma():\n"
+        "    useState()\n"
+        "    useToast()\n", encoding="utf-8")
+    (root / "ui" / "d.py").write_text(
+        "def Delta():\n"
+        "    useState()\n"
+        "    useToast()\n", encoding="utf-8")
+    return root
 
 
 def run_query(*argv) -> str:
@@ -761,7 +793,27 @@ def check_queries() -> list[str]:
     """
     import json as _json
 
+    import query as _query
+
     bad = []
+    # The generated application, on disk. Pointed at through the same call the
+    # real commands use, so `read_target_fresh` walks a real tree.
+    target_root = build_target_tree()
+    _real_solution = _query.configured_solution
+    _query.configured_solution = lambda: {
+        "name": "tgt", "path": target_root, "exists": True,
+        "exclude": (), "include": (), "repo": "", "rev": "",
+        "role": "target", "is_target": True}
+    _query._FRESH_CACHE.clear()
+    try:
+        return _check_queries(bad, _json)
+    finally:
+        _query.configured_solution = _real_solution
+        _query._FRESH_CACHE.clear()
+        shutil.rmtree(target_root, ignore_errors=True)
+
+
+def _check_queries(bad, _json):
 
     # A repository's role is the directory it sits in, and this is the proof:
     # move the directory, change nothing else, and what the contract commands
@@ -776,9 +828,9 @@ def check_queries() -> list[str]:
     from _common import index_path, read_index
 
     seen = {r["repo"] for r in read_index()}
-    if seen != {"ex", "tgt"}:
-        bad.append(f"roles: contract commands should see the exemplar and the"
-                   f" target, saw {sorted(seen)}")
+    if seen != {"ex", "ex2"}:
+        bad.append(f"roles: contract commands should see the exemplars and"
+                   f" nothing else, saw {sorted(seen)}")
     moved_from, moved_to = index_path("exemplar", "ex"), index_path("reference", "ex")
     shutil.move(str(moved_from), str(moved_to))
     try:
@@ -886,19 +938,14 @@ def check_queries() -> list[str]:
     # `exemplars` says "copy the structure of these", so the generated target
     # must not be among them unless asked for. Ranking your own output most
     # typical is how one mistake becomes the convention.
+    # The generated app cannot reach this command at all now -- it is not in
+    # the index -- but the exemplar's own files still must.
     out = run_query("exemplars", "--path", "app/models/*")
     if "tgt/" in out:
         bad.append(f"exemplars: the generated target was offered as a model "
                    f"to copy:\n{out}")
     if "ex/" not in out:
         bad.append(f"exemplars: the exemplar's own files were held out too:\n{out}")
-    out = run_query("exemplars", "--path", "app/models/*", "--include-target")
-    if "tgt/" not in out:
-        bad.append(f"exemplars --include-target: the target stayed hidden:\n{out}")
-    out = run_query("exemplars", "--path", "app/models/*", "--repo", "tgt")
-    if "tgt/" not in out:
-        bad.append(f"exemplars --repo tgt: naming the target explicitly was "
-                   f"overruled:\n{out}")
 
     # Exact on the root, not a substring: `Base` is `Base` and `Base[Student]`,
     # and is not `BaseModel`.
@@ -1117,6 +1164,17 @@ def check_queries() -> list[str]:
                            f"the document: {got.get('stale')!r}")
     finally:
         _q.stale_repositories = original
+
+    # The generated app is not indexed, and its absence produces findings
+    # rather than gaps: a symbol defined only there comes back as IMPORTED BY
+    # (0), which reads as "nothing registers this" -- the exact conclusion the
+    # command exists to deliver, reached because it cannot see the app.
+    for cmd in (("imports", "Gamma"), ("calls", "--on", "Gamma")):
+        out = run_query(*cmd)
+        if "not indexed" not in out:
+            bad.append(f"{cmd[0]}: reported on a symbol from the generated app "
+                       f"without saying the app is not in the index -- a zero "
+                       f"there reads as a finding:\n{out}")
 
     # A hop after a barrel is a bare directory name. Both repositories own one
     # called `models`, and only this repository's is part of this chain.

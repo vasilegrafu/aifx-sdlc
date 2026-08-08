@@ -364,8 +364,12 @@ def main() -> int:
                     help="skip files larger than this")
     ap.add_argument("--no-git", action="store_true",
                     help="skip last-commit dates; mtime alone decides recency")
+    ap.add_argument("--with-solution", action="store_true",
+                    help="index the generated target too. Off by default: the "
+                         "solution is the destination, not a source, and it "
+                         "changes every time anything is generated into it")
     ap.add_argument("--no-solution", action="store_true",
-                    help="index only the sources, leaving out the generated target")
+                    help=argparse.SUPPRESS)   # the old spelling; now the default
     ap.add_argument("--no-references", action="store_true",
                     help="leave out the reference corpus (much faster to build)")
     ap.add_argument("--only", metavar="NAME[,NAME...]",
@@ -379,11 +383,24 @@ def main() -> int:
                     "exclude": (), "role": "exemplar"} for r in args.roots]
     else:
         targets = [t for t in configured_repositories()]
-        # The generated application is indexed alongside its sources. Where it
-        # has already diverged deliberately, that divergence has to be visible
-        # or the next generation will quietly undo it.
+        # The solution is the destination, not a source, and it is deliberately
+        # not indexed.
+        #
+        # It used to be, and the argument for it was real: an index of the
+        # generated app is a record of decisions already made, so a second
+        # generation would not undo the first. What that argument understated
+        # is the cost. The target changes every time anything is written into
+        # it, so its shard is stale the moment it matters most, and its records
+        # were being counted as evidence of what a layer looks like -- 7 of the
+        # 10 "models" in this repository were the generated app, so the contract
+        # being reported was mostly the skill quoting itself back.
+        #
+        # What is kept is the useful half: `conform` and `questions
+        # --target-path` read the generated layer *fresh* from disk, scoped to
+        # the files matching the glob. That is milliseconds, it is never stale,
+        # and it leaves nothing behind in `.indexes/`.
         solution = configured_solution()
-        if solution["exists"] and not args.no_solution:
+        if solution["exists"] and args.with_solution:
             targets.append(solution)
         # References last, and the order is load bearing. One physical file is
         # indexed once, under whichever root reached it first; putting evidence
@@ -448,17 +465,30 @@ def main() -> int:
         # roots on the command line say nothing about the config, so they prune
         # nothing at all.
         if not args.roots:
+            # The solution counts as configured only when it is being indexed.
+            # Otherwise a shard left over from before this became the default
+            # would sit there answering queries forever -- stale by definition,
+            # since nothing rebuilds it.
+            keep = configured_repositories() + configured_references()
+            if args.with_solution:
+                keep.append(configured_solution())
             still_configured = {
                 (ROLE_DIRS.get(t.get("role") or DEFAULT_ROLE), safe_name(t["name"]))
-                for t in (configured_repositories() + [configured_solution()]
-                          + configured_references())
+                for t in keep
             }
             for role, directory in sorted(ROLE_DIRS.items()):
-                for stale in sorted((index_root() / directory).glob("*")):
+                role_path = index_root() / directory
+                for stale in sorted(role_path.glob("*")):
                     if stale.is_dir() and (directory, stale.name) not in still_configured:
                         print("  removing the index of a repository no longer"
                               f" configured: {directory}/{stale.name}")
                         shutil.rmtree(stale, ignore_errors=True)
+                # And the role directory itself once it holds nothing. An empty
+                # `solution/` sitting in `.indexes/` says the generated app is
+                # indexed when it is not, which is the one thing this layout is
+                # supposed to make unambiguous: the role *is* the directory.
+                if role_path.is_dir() and not any(role_path.iterdir()):
+                    role_path.rmdir()
 
     started = time.time()
     files = classes = funcs = unparsed = dated = 0

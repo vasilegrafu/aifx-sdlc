@@ -45,9 +45,14 @@ Point it at codebases in `config.json`, at the root of this repository:
 ```
 
 - **`exemplar_corpus`** — the codebases you copy. `name` is what queries call it.
-- **`solution`** — where generated code is built. It is indexed too, and once it
-  holds a layer it **outranks the sources** for that layer: a convention it
-  deliberately dropped will not be reintroduced from a source that still has it.
+- **`solution`** — where generated code is built. **Not indexed:** it is the
+  destination, not a source, and a stored copy is stale as soon as anything is
+  generated into it. Indexing it also skewed every measurement, because the
+  generated app is usually larger than the slice of the exemplar being copied —
+  `shape` over a models layer reported 10 classes of which 7 were the generated
+  app. `conform` and `questions --target-path` read it fresh from disk instead,
+  scoped to the layer you name, which is faster and never stale.
+  `index.py --with-solution` puts it in the index if you want it there.
 - **`reference_corpus`** — widely-used codebases indexed as **evidence**, never as
   templates. Declared by `repo` URL and fetched into the skill's own
   `.reference_corpus/<name>` by `scripts/fetch.py`; nothing here is a local path, so the corpus is

@@ -202,22 +202,41 @@ Step 6 still has work to do, though: most decisions are not disagreements
 between codebases but forks *inside* one, and `questions` finds those in a
 single repository.
 
-## The target is a codebase too, and it outranks the source
+## The target is the destination, and it is not indexed
 
-The generated application is indexed alongside its sources, under its own name.
-This matters the second time you are asked for something, and it is the failure
-you will not notice: read only the source, and every deliberate departure made
-last time is faithfully undone. A schema dropped on purpose comes back, because
-the source still has it at 100%.
+The generated application is **not** in the index. It is where you write, not
+something you read for conventions, and a stored copy of it is stale the moment
+anything is generated into it.
 
-So once the target holds the layer being asked for, **it is the later decision
-and it wins.** `shape` labels it and says so; where a feature is universal in
-the source and absent from the target, the answer is already settled and there
-is nothing to ask.
+This was the other way round once, and the reason it changed is worth knowing,
+because the old arrangement looked harmless. Indexing the target meant its
+records were counted as evidence of what a layer looks like — and the target is
+usually *larger* than the slice of the exemplar being copied. Measured here:
+`shape --path '*/models/*'` reported 10 classes, of which 7 were the generated
+app, so the "contract" was mostly the skill quoting its own previous output
+back as though it were atlas. The `VARIES` rows described the destination's
+domain, not the source's.
 
-Ask only about rows where no target column appears. Reintroducing something the
-target dropped is not fidelity, it is regression — and the person who dropped it
-will have to drop it again.
+What that arrangement bought was real, and it is kept — by reading the
+generated layer **fresh from disk** instead:
+
+- `conform` reads the target side directly, scoped to `--target-path`. Seven
+  files, milliseconds, and never stale.
+- `questions --target-path` reads back what the generated code already answers,
+  so a decision you have made is not put to you twice.
+
+Both are better for it: they describe the files as they are now, rather than as
+they were when someone last remembered to rebuild.
+
+**What you lose, and it is a real loss.** Nothing watches the generated app on
+your behalf any more. `layers`, `find`, `imports --chain`, `calls` and `proof`
+see the exemplars only, so the wiring check on generated code is `smoke.py`'s
+`REACHABLE` rather than `imports --chain`. And a convention the target
+deliberately dropped is no longer visible to `shape`, so **you** have to notice
+if a later pass reintroduces it. That was a deliberate trade: the cost of the
+index was paid on every query, and the protection only mattered occasionally.
+
+`index.py --with-solution` puts it back if you want it for a session.
 
 A directory linked into a solution by junction or symlink is **part of that
 solution**, and is indexed as part of it. It sits on the import path; the code
@@ -424,11 +443,11 @@ around it.
 scripts/query.py exemplars --path '<dir>/*' [--base <Base>]
 ```
 
-**The generated target is held out of this**, and only of this. Everywhere else
-the target outranks the source — it decides, and `shape`, `conform` and
-`questions` all say so. But this command answers *what should I imitate*, and
-imitating your own last pass is how a mistake made once becomes the convention.
-`--include-target` overrides it when you genuinely want to see what you wrote.
+The generated target cannot appear here, because it is not indexed at all. That
+is the right answer for this command in particular: it answers *what should I
+imitate*, and imitating your own last pass is how a mistake made once becomes
+the convention. Where the target has genuinely decided something, `conform` and
+`questions --target-path` read it from disk and say so.
 
 Read the most typical file **in full** — it is what you copy the structure of.
 Read one atypical file too: it shows which parts are optional, which the typical
@@ -591,9 +610,9 @@ limits questions properly is the rule below, not arithmetic.
 
 **Never ask what the codebase, the config or the request already answers.** That
 is the whole restraint. Before asking anything about the target, read the target
-— it is indexed, it outranks the source, and if the answer is visible in code
-already generated then there is no question. Asking there is a bug, not
-diligence.
+— pass `--target-path`, which reads the generated files from disk, and if the
+answer is visible in code already generated then there is no question. Asking
+there is a bug, not diligence.
 
 **Every question offers real options and the user's own wording.** Three or four
 substantive alternatives, each with what it actually means — the counts from the

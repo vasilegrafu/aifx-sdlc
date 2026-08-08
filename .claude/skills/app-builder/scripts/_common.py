@@ -198,13 +198,18 @@ def configured_references() -> list[dict]:
 
 
 def configured_solution() -> dict:
-    """The target application, as a repository record like any other.
+    """The target application: where generated code is written.
 
     `solution` may be a path, or an object carrying `exclude` for a tree that
-    should not be walked. It is indexed alongside the sources deliberately: once
-    the target holds the layer being asked for, it is the later decision, and a
-    convention it has deliberately dropped must not be reintroduced from the
-    source that still has it.
+    should not be walked.
+
+    **Not indexed.** It is the destination rather than a source, and a stored
+    copy of it is stale the moment anything is generated into it -- while its
+    records, being usually more numerous than the slice of the exemplar being
+    copied, would dominate any measurement of what a layer looks like. The two
+    commands that genuinely need to see it -- `conform` and `questions
+    --target-path` -- read it fresh from disk, scoped to the layer in question.
+    `index.py --with-solution` overrides that.
     """
     entry = load_config().get("solution") or "solution"
     if isinstance(entry, str):

@@ -43,10 +43,10 @@ from _common import (configured_questions, configured_references,
                      INDEX_SCHEMA, ROLE_DIRS, ROLE_ORDER,
                      display_path, find_files, index_meta, index_root,
                      index_schema_warning, indexed_repositories, iter_source_files,
-                     load_config, pct,
+                     load_config, pct, rel,
                      indexed_roles, read_index, rollup_path, skill_root,
                      truncate)
-from extractors import ALL_EXTENSIONS
+from extractors import ALL_EXTENSIONS, REGISTRY as EXTRACTORS, for_path
 
 # ---------------------------------------------------------------- filtering
 
@@ -398,8 +398,11 @@ def cmd_config(args):
     target = configured_solution()
     print(f"\nTARGET        {'ok ' if target['exists'] else 'not built yet'}  "
           f"{target['name']:<20} {display_path(target['path'])}")
-    print("              indexed with the sources; where it has already diverged,"
-          "\n              it is the later decision and it wins")
+    print("              where you build. Not indexed -- it is the destination,"
+          "\n              not a source, and a stored copy of it is stale as"
+          " soon as\n              anything is generated. `conform` and"
+          " `questions --target-path`\n              read it fresh from disk"
+          " instead.")
 
     refs = configured_references()
     if refs:
@@ -628,7 +631,14 @@ def cmd_proof(args):
             continue
         langs = per_repo_langs.get(repo["name"])
         if not langs:
-            print("  nothing from this repository is in the index\n")
+            if repo.get("is_target"):
+                print("  not indexed -- the generated application is the"
+                      " destination, not a\n  source. Its tests and entry"
+                      " points are on disk; this reports what the\n  index"
+                      " holds. `index.py --with-solution` if you want it"
+                      " here.\n")
+            else:
+                print("  nothing from this repository is in the index\n")
             continue
 
         for lang, n_files in langs.most_common():
@@ -880,6 +890,59 @@ def date_provenance(recs, shallow=frozenset(), unavailable=None) -> str | None:
     return None
 
 
+_FRESH_CACHE: dict[str, list] = {}
+
+
+def read_target_fresh(path_glob: str) -> list[dict]:
+    """Parse the generated layer from disk, now, and return its records.
+
+    The solution is not indexed -- it is the destination, and a stored copy of
+    it is stale the moment anything is generated. So the two commands that
+    genuinely need to see it read it directly instead.
+
+    Cheap because it is *scoped*. The glob is applied to the walk before
+    anything is parsed, so checking a models layer costs seven files rather
+    than the whole application -- and the whole application, here, would mean
+    re-parsing the 268-file library that is linked into it on every call.
+
+    Records come back exactly as `index.py` would have written them, so
+    everything downstream -- `features`, `conform`, `target_settled` -- is
+    unchanged and cannot tell the difference.
+    """
+    if path_glob in _FRESH_CACHE:
+        return _FRESH_CACHE[path_glob]
+    solution = configured_solution()
+    if not solution["exists"]:
+        _FRESH_CACHE[path_glob] = []
+        return []
+
+    wanted = defaultdict(list)
+    for path in iter_source_files(solution["path"], 2_000_000,
+                                  solution.get("exclude", ()),
+                                  ALL_EXTENSIONS,
+                                  include=solution.get("include", ())):
+        if fnmatch.fnmatch(rel(path, solution["path"]), path_glob):
+            extractor = for_path(path)
+            if extractor is not None:
+                wanted[extractor.LANGUAGE].append(path)
+
+    out = []
+    for language, paths in sorted(wanted.items()):
+        extractor = EXTRACTORS[language]
+        reason = extractor.available(solution["path"])
+        if reason:
+            # Same rule as indexing: absent evidence must not read as absent
+            # convention, so say what could not be read rather than returning
+            # a confident short answer.
+            print(f"  note: {len(paths)} {language} file(s) in the generated "
+                  f"layer could not be read -- {reason}")
+            continue
+        out.extend(extractor.extract(paths, solution["path"],
+                                     solution["name"], {}))
+    _FRESH_CACHE[path_glob] = out
+    return out
+
+
 _STALE_CACHE = None
 
 
@@ -931,6 +994,33 @@ def stale_repositories(budget: int = 40000) -> list[str]:
             except OSError:
                 continue
     return _STALE_CACHE
+
+
+def note_target_unindexed() -> None:
+    """Say that the generated application is not in the index.
+
+    Necessary because its absence produces *findings* rather than gaps. A
+    symbol defined in the generated app comes back as `IMPORTED BY (0)`, which
+    reads as "nothing registers this, it will silently never take effect" --
+    the exact conclusion `imports` exists to deliver, arrived at because the
+    command cannot see the app at all. `calls` does the same, reporting a
+    perfectly live helper as dead.
+
+    Absent evidence must not read as absent convention. That rule is why the
+    skill reports skipped languages and uncovered file types, and it applies
+    with more force here, because this absence is the normal state.
+    """
+    solution = configured_solution()
+    if not solution["exists"]:
+        return
+    if index_meta("target", solution["name"]).exists():
+        return          # someone indexed it with --with-solution
+    print(f"  note: {solution['name']} is not indexed -- the generated"
+          " application is the\n        destination, not a source. What"
+          " follows covers the exemplars only, so a\n        zero here means"
+          " 'not looked at', not 'not there'. For wiring in generated\n"
+          "        Python use scripts/smoke.py; for a one-off view,"
+          " index.py --with-solution.\n")
 
 
 def warn_if_stale() -> None:
@@ -1118,9 +1208,12 @@ def cmd_exemplars(args):
     instruction to *copy the structure of these*, and the generated target is
     not a thing to copy from -- ranking one of its files most typical tells you
     to reproduce your own last pass, which is how a mistake made once becomes
-    the convention. The target still outranks the source everywhere it decides
-    something; that is `shape`, `conform` and `questions`, none of which are
-    telling you what to imitate.
+    the convention. The target still decides wherever it has decided something
+    -- `conform` and `questions --target-path` both read it -- and neither of
+    those is telling you what to imitate.
+
+    Mostly moot now that the generated app is not indexed at all, but kept:
+    `--with-solution` puts it back, and `--repo` can still name it.
     """
     recs = collect(args, kinds=kinds_for(args))
     # `--repo` is explicit and wins: naming the target means meaning it.
@@ -1202,6 +1295,7 @@ def cmd_calls(args):
     imports cleanly, passes every linter, and raises only when something finally
     runs that line.
     """
+    note_target_unindexed()
     on = args.on
     called: dict[str, list] = defaultdict(list)
     defined: set[str] = set()
@@ -1407,9 +1501,12 @@ def target_settled(args, ranked) -> dict[str, str]:
     if not getattr(args, "target_path", None):
         return {}
     repo = getattr(args, "target_repo", None) or configured_solution()["name"]
-    target = [r for r in read_index()
-              if r["k"] in kinds_for(args) and r["repo"] == repo
-              and fnmatch.fnmatch(r["path"], args.target_path)]
+    # From disk, not from the index: the generated application is not indexed,
+    # and for this question a stored copy would be worse than none. Reading it
+    # back is only worth doing if it reflects what is there now.
+    target = [r for r in read_target_fresh(args.target_path)
+              if r.get("k") in kinds_for(args)
+              and (not getattr(args, "target_repo", None) or r["repo"] == repo)]
     if not target:
         return {}
     n = len(target)
@@ -1638,16 +1735,25 @@ def cmd_conform(args):
             continue
         is_source = (fnmatch.fnmatch(r["path"], args.path)
                      and (not args.repo or r["repo"] == args.repo))
-        is_target = (fnmatch.fnmatch(r["path"], args.target_path)
-                     and (not args.target_repo or r["repo"] == args.target_repo))
         if r["k"] in kinds:
             if is_source:
                 source.append(r)
-            if is_target:
-                target.append(r)
+        elif is_source:
+            other_source += 1
+
+    # The target side is read from disk rather than from the index, because the
+    # generated application is not indexed -- see `read_target_fresh`. This is
+    # also what makes the check trustworthy: it describes the files as they are
+    # at this moment, not as they were when someone last remembered to rebuild.
+    for r in read_target_fresh(args.target_path):
+        if r.get("k") not in ("class", "func"):
+            continue
+        if args.target_repo and r["repo"] != args.target_repo:
+            continue
+        if r["k"] in kinds:
+            target.append(r)
         else:
-            other_source += 1 if is_source else 0
-            other_target += 1 if is_target else 0
+            other_target += 1
 
     want = getattr(args, "tech", None)
     if want:
@@ -1786,6 +1892,7 @@ def cmd_conform(args):
 
 
 def cmd_imports(args):
+    note_target_unindexed()
     sym = args.symbol_arg
     modules, subclasses = [], []
     for rec in read_index():
