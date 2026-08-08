@@ -84,10 +84,10 @@ export class Widget extends Base {
 
 export function helper(n) { return String(n); }
 '''),
-    # Not code, and deliberately held to the same contract. A template layer's
+    # Not code, and deliberately held to the same contract. A template family's
     # inheritance is a base class, its blocks are methods and its includes are
     # calls -- if that mapping ever stops holding, every query over a template
-    # layer quietly describes something else.
+    # family quietly describes something else.
     "html": ("fixture.html", '''
 {% extends "base.html" %}
 {% load i18n %}
@@ -213,7 +213,7 @@ def check(language, extractor, root: Path) -> list[str]:
         problems.append(f"{language}: emitted no class record for a class")
 
     # The fixture's class calls a method on a parameter and a free function.
-    # Both must be visible, because a layer's conventions live in what it calls.
+    # Both must be visible, because a family's conventions live in what it calls.
     cls = next((r for r in records if r.get("k") == "class"), None)
     if cls is not None:
         if not cls["bases"]:
@@ -454,7 +454,7 @@ def _func(repo, path, name, when, invokes=(), params=()):
     """A module-level function record -- a component, a hook, a handler.
 
     Its conventions live in what it *calls*, which is why `invokes` is the
-    interesting field and why a layer of these has a contract at all.
+    interesting field and why a family of these has a contract at all.
     """
     return {"k": "func", "lang": "typescript", "repo": repo, "path": path,
             "mtime": when, "commit": when, "name": name, "decorators": [],
@@ -529,7 +529,7 @@ def build_query_fixture() -> Path:
         # blended into the same family for a long time.
         #
         # Deliberately outside `app/models/`: these exist to test matching, and
-        # putting them in the layer the other fixtures measure changed its
+        # putting them in the family the other fixtures measure changed its
         # ratios and silently retired an assertion elsewhere.
         _class("ex", "app/other/Generic.py", "Generic", now,
                bases=("Base[Student]",)),
@@ -553,7 +553,7 @@ def build_query_fixture() -> Path:
         _module("ex", "app/models/__init__.py", ["Widget"], now),
         _module("ex", "app/registry.py", ["models"], now),
         _module("ex2", "app/wiring.py", ["models"], now),
-        # A function layer on the source side -- components, whose contract is
+        # A function family on the source side -- components, whose contract is
         # what they call. Every one calls `useConfig` and `useState`; the
         # generated pair on disk keeps `useState` and drops `useConfig`, which
         # is the silent departure `conform` exists to name.
@@ -626,7 +626,7 @@ def build_target_tree() -> Path:
     moment they are asked, so a fixture that handed them prepared records would
     exercise a path that no longer exists.
 
-    Two layers, each shaped to make one thing fail loudly if it regresses:
+    Two families, each shaped to make one thing fail loudly if it regresses:
     the models agree on the form of `id` and disagree about `touch`, so one
     candidate is settled by the code and one stays a live question; and the
     components keep `useState` while dropping the `useConfig` that every source
@@ -852,13 +852,13 @@ def _check_queries(bad, _json):
     if "One" not in out and "2 classes" not in out and "ex" not in out:
         bad.append(f"shape: expected the exemplar's classes, got:\n{out}")
 
-    out = run_query("layers")
+    out = run_query("families")
     if "ref/" in out:
-        bad.append("layers: a reference repository was listed as a layer")
+        bad.append("families: a reference repository was listed as a family")
 
-    out = run_query("layers", "--lang", "python")
+    out = run_query("families", "--lang", "python")
     if "app" not in out:
-        bad.append("layers --lang: filtered everything out")
+        bad.append("families --lang: filtered everything out")
 
     out = run_query("practice", "--on", "oldlib", "--versus", "newlib")
     if "ref" not in out:
@@ -1029,8 +1029,8 @@ def _check_queries(bad, _json):
     if not said or "nothing here is in git" not in said:
         bad.append(f"date_provenance: lost the ordinary no-git message: {said!r}")
 
-    # A function layer has a contract too, and until `--kind func` existed this
-    # command could not see one -- every React, hook and handler layer the skill
+    # A function family has a contract too, and until `--kind func` existed this
+    # command could not see one -- every React, hook and handler family the skill
     # can generate had no rung-8 check at all.
     out = run_query("conform", "--kind", "func", "--repo", "ex",
                     "--path", "ui/*", "--target-repo", "tgt",
@@ -1045,7 +1045,7 @@ def _check_queries(bad, _json):
         bad.append(f"conform --kind func: a call universal in the target and "
                    f"absent from the source was not reported as ADDED:\n{out}")
     # The default is still classes, and asking for the wrong one says so
-    # instead of reporting an empty layer.
+    # instead of reporting an empty family.
     out = run_query("conform", "--kind", "class", "--repo", "ex",
                     "--path", "ui/*", "--target-repo", "tgt",
                     "--target-path", "ui/*")

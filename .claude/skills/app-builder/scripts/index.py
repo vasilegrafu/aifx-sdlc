@@ -174,7 +174,7 @@ def extract_containers(paths, root, repo, commits, uncovered, skipped):
                 seen_any = True
             if not seen_any:
                 # 24 of 230 real components are template and style only. They
-                # are still files and still have to be counted, or the layer
+                # are still files and still have to be counted, or the family
                 # looks smaller than it is.
                 yield module_stub(relpath, repo, path, commits)
 
@@ -391,12 +391,12 @@ def main() -> int:
         # generation would not undo the first. What that argument understated
         # is the cost. The target changes every time anything is written into
         # it, so its shard is stale the moment it matters most, and its records
-        # were being counted as evidence of what a layer looks like -- 7 of the
+        # were being counted as evidence of what a family looks like -- 7 of the
         # 10 "models" in this repository were the generated app, so the contract
         # being reported was mostly the skill quoting itself back.
         #
         # What is kept is the useful half: `conform` and `questions
-        # --target-path` read the generated layer *fresh* from disk, scoped to
+        # --target-path` read the generated family *fresh* from disk, scoped to
         # the files matching the glob. That is milliseconds, it is never stale,
         # and it leaves nothing behind in `.indexes/`.
         solution = configured_solution()
@@ -859,7 +859,7 @@ def main() -> int:
         print(f"  partial: rebuilt {', '.join(sorted(t['name'] for t in rebuilding))};"
               f" every other repository was left as it was")
     print("\nDo not read this index. Query it:")
-    print("  scripts/query.py layers")
+    print("  scripts/query.py families")
     return 0
 
 

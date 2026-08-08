@@ -1,6 +1,6 @@
 """HTML templates: Django and Jinja, plus plain pages.
 
-A template layer has a contract like any other, and it is already expressible in
+A template family has a contract like any other, and it is already expressible in
 the schema everything else uses -- no new record kind, no new query:
 
     {% extends "admin/base.html" %}   ->  a base class
@@ -84,7 +84,7 @@ def _directives(text: str) -> list[dict]:
 
     Deduplicated by name on purpose. A table with forty rows carrying `@click`
     is one convention used forty times, and counting it forty times would make a
-    single busy page outweigh every other template in the layer -- the same
+    single busy page outweigh every other template in the family -- the same
     reason a module is counted once however many classes it holds.
     """
     seen: dict[str, dict] = {}
@@ -193,7 +193,7 @@ def extract(files, root, repo, commits):
 
         # A page with no directives and no assets says nothing worth a record.
         # Static markup is not a convention, and one record per marketing page
-        # would drown the layer that has one. A page carrying htmx or Alpine
+        # would drown the family that has one. A page carrying htmx or Alpine
         # behaviour counts even when it inherits nothing and includes nothing --
         # that behaviour is the reason it exists.
         if not (parents or blocks or includes or imports or directives):

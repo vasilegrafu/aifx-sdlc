@@ -1,12 +1,21 @@
 ---
 name: app-builder
-description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add a layer — a database layer, models, repositories, controllers, services, API routes, handlers, React, Vue, Svelte or TypeScript components, Django or Jinja templates, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how a layer is wired, which conventions are dying, or where two codebases disagree. Reads Python, TypeScript, JavaScript, C# and HTML templates — including .vue, .svelte, .razor and .cshtml — at any size through a structural index rather than by opening files, so it also answers questions about ASP.NET, React, Vue, Django or SQLAlchemy code without reading it.
+description: Generate a working part of an application by reading how one or more existing codebases already do it. Use when asked to build, generate, scaffold or add more of something that already exists in similar form — database models, repositories, controllers, services, API routes, handlers, React, Vue, Svelte or TypeScript components, Django or Jinja templates, jobs, clients — "the way the other project does it", "like in atlas", "matching our existing code", or "combining the best from these repos". Also use when asked what a large codebase's structure is, what its conventions are, how something is wired, which conventions are dying, or where two codebases disagree. Reads Python, TypeScript, JavaScript, C# and HTML templates — including .vue, .svelte, .razor and .cshtml — at any size through a structural index rather than by opening files, so it also answers questions about ASP.NET, React, Vue, Django or SQLAlchemy code without reading it.
 ---
 
-# Generating a layer from codebases you were pointed at
+# Generating a family from codebases you were pointed at
 
 You are given one or more codebases and a description in prose. You produce
 working code in a target project, shaped the way those codebases shape it.
+
+**A family is a set of sibling files that look alike — nothing more.** Twelve
+models in `models/`, forty handlers in one flat `routes.py`, the components in
+`components/`, one folder per feature where the siblings are the other feature
+folders. It is *not* an architectural layer, and this skill does not ask an
+application to have layers: what it needs is **repetition**, so that you are
+generating the seventh of something and have six to learn from. How the target
+arranges its own families — flat, grouped, by feature — is a step 6 decision and
+the target's to make, not the exemplar's.
 
 The whole method rests on one distinction:
 
@@ -38,7 +47,8 @@ Three rules keep that from becoming licence to rewrite whatever you dislike:
 
 1. **Evidence, not taste.** A proposal cites `practice` — what the reference
    corpus does and when — or a named failure the current form causes. "More
-   modern" is not a reason. `references/alternatives.md` is the checklist.
+   modern" is not a reason, and neither is "I would have written it
+   differently". With neither in hand, say nothing and reproduce the source.
 2. **The caller check is absolute.** Before keeping anything more ergonomic than
    the exemplar, find a real call site. This rule was paid for: defaulting
    `session` to `None` read better and broke every caller, with the error landing
@@ -125,7 +135,7 @@ convention still how anyone does it?** One codebase cannot tell you that. It is
 the difference between a live convention and a fossil that happens to hold a
 majority, and no amount of querying the exemplar reveals it.
 
-They are held out of `layers`, `shape`, `exemplars`, `questions`, `conform` and
+They are held out of `families`, `shape`, `exemplars`, `questions`, `conform` and
 `DISAGREEMENTS` — by `read_index`, so it is not something a command has to
 remember. Only `practice` opts in unasked; `deps` reads them only when passed
 `--references`, because a package that only a reference declares is not one the
@@ -210,7 +220,7 @@ anything is generated into it.
 
 This was the other way round once, and the reason it changed is worth knowing,
 because the old arrangement looked harmless. Indexing the target meant its
-records were counted as evidence of what a layer looks like — and the target is
+records were counted as evidence of what a family looks like — and the target is
 usually *larger* than the slice of the exemplar being copied. Measured here:
 `shape --path '*/models/*'` reported 10 classes, of which 7 were the generated
 app, so the "contract" was mostly the skill quoting its own previous output
@@ -218,7 +228,7 @@ back as though it were atlas. The `VARIES` rows described the destination's
 domain, not the source's.
 
 What that arrangement bought was real, and it is kept — by reading the
-generated layer **fresh from disk** instead:
+generated family **fresh from disk** instead:
 
 - `conform` reads the target side directly, scoped to `--target-path`. Seven
   files, milliseconds, and never stale.
@@ -229,7 +239,7 @@ Both are better for it: they describe the files as they are now, rather than as
 they were when someone last remembered to rebuild.
 
 **What you lose, and it is a real loss.** Nothing watches the generated app on
-your behalf any more. `layers`, `find`, `imports --chain`, `calls` and `proof`
+your behalf any more. `families`, `find`, `imports --chain`, `calls` and `proof`
 see the exemplars only, so the wiring check on generated code is `smoke.py`'s
 `REACHABLE` rather than `imports --chain`. And a convention the target
 deliberately dropped is no longer visible to `shape`, so **you** have to notice
@@ -250,7 +260,7 @@ A solution usually contains both the application and the library it is built on
 — often the linked directory above. They play different roles and must not be
 read the same way:
 
-- The **application** is what you copy. Its layer is the thing being reproduced.
+- The **application** is what you copy. Its family is the thing being reproduced.
 - The **library** is what you call. You need its surface — what exists, what each
   method takes — not its style.
 
@@ -258,7 +268,7 @@ Separate them **at query time**, with `--path` to look inside one and
 `--not-path` to hold it out:
 
 ```bash
-scripts/query.py layers --not-path 'devfx/*'   # the application
+scripts/query.py families --not-path 'devfx/*'   # the application
 scripts/query.py find   --path 'devfx/database/*'  # what it calls
 ```
 
@@ -354,7 +364,7 @@ Three restraints keep this from becoming a form to fill in:
   in the git history has already answered "scale" and "who maintains it".
   Infer it, state the inference in one line, and let it be corrected.
 - **Do not ask what does not matter here.** Adding a controller to an existing
-  layer needs none of this. Raise only what a decision in *this* request turns
+  family needs none of this. Raise only what a decision in *this* request turns
   on.
 - **Under `questions: none`, ask nothing.** Infer, state the assumptions
   explicitly in the report, and let step 10's numbered list carry them.
@@ -363,13 +373,13 @@ The failure this prevents is specific and expensive: a structural choice made
 early on an assumption nobody checked, discovered only when the assumption turns
 out to be wrong and the structure is load-bearing.
 
-### 2. Find the layer
+### 2. Find the family
 
 ```bash
-scripts/query.py layers --depth 3 --not-path '<library>/*'
+scripts/query.py families --depth 3 --not-path '<library>/*'
 ```
 
-Directories, class counts and the dominant base class of each. The layer the
+Directories, class counts and the dominant base class of each. The family the
 user described in prose is one of these rows. If two rows could both be it, say
 which you picked and why, in one line — do not ask yet.
 
@@ -388,21 +398,21 @@ scripts/query.py shape --path '<dir>/*' [--base <Base>]
 
 Read the output as separate instructions, not as a report:
 
-- **ALWAYS** — every class in the layer has it. This is the contract. Generated
+- **ALWAYS** — every class in the family has it. This is the contract. Generated
   code that omits any of it is wrong, whatever it looks like. It is also the
   section nothing else will question, so it is the one place where reading
   carefully is the only safeguard: ask of each row whether it is load-bearing
   for what was requested, and whether it is still how this gets built. Most
   rows are both, and reproducing them is the whole job. The occasional row that
-  is neither is what `practice` and `references/alternatives.md` exist to catch.
+  is neither is what `practice` exists to catch.
 - **`nn%`** — usual but not universal. Follow it unless the request says
   otherwise, and say that you did.
 - **VARIES** — the axis of choice. Each of these is a decision the request must
   settle, or that you settle and state. Each carries the date it was last
   touched.
 - **ATTRIBUTE DETAIL** — what an attribute *is*, not merely that it is there:
-  the modal annotation and constructor, and how much of the layer agrees. For a
-  data layer this is the real contract — `id` being present everywhere says far
+  the modal annotation and constructor, and how much of the family agrees. For a
+  data-model family this is the real contract — `id` being present everywhere says far
   less than `id` being `Mapped[UUID] = mapped_column(Uuid, primary_key=True)`.
   The `also:` line is the minority form, and is usually a genuine subfamily
   worth understanding before choosing.
@@ -411,10 +421,10 @@ Read the output as separate instructions, not as a report:
 - **DISAGREEMENTS** — printed only when the index holds more than one codebase.
   Handle it in step 6.
 
-- **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the layer's vocabulary. What a
-  definition calls is part of its shape, and in a framework layer it is nearly
+- **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the family's vocabulary. What a
+  definition calls is part of its shape, and in a framework family it is nearly
   all of it: `useState` and a codebase's own `useConfig` are declared nowhere.
-  `ALWAYS StandardDbCtrl.filter` across a controller layer is as binding as any
+  `ALWAYS StandardDbCtrl.filter` across a controller family is as binding as any
   base class.
 
 `--usually` moves the threshold between *usual* and *varies*; the default is 60.
@@ -429,12 +439,12 @@ percentages are computed across every matched repository at once, and
 glob rather than through a decision. Read each side with `--repo` before
 treating any row as contract.
 
-**`--kind func` when the layer's unit is not a class.** A React component, a
+**`--kind func` when the family's unit is not a class.** A React component, a
 hook, a route handler and most modern JavaScript are functions, and the default
 `--kind class` will report that a directory of forty components contains
 nothing. `shape` warns when the filter matched more functions than classes;
 believe it. `--tech react|sqlalchemy|aspnet|...` narrows to modules importing a
-technology, which is how a framework layer is separated from the application
+technology, which is how a framework family is separated from the application
 around it.
 
 ### 4. Read the exemplars — and only these
@@ -455,11 +465,11 @@ file alone cannot tell you. Copy structure, never domain nouns.
 
 **Typical is not the same as correct.** `exemplars` ranks by how many features a
 file shares with its siblings; nothing in that measures whether it works. A file
-can be the most representative in the layer and still call a method that does
+can be the most representative in the family and still call a method that does
 not exist, because nothing ever ran it. Copying it faithfully then spreads one
 dead line across everything you generate.
 
-So when a layer calls into a library, check the names against the **library**,
+So when a family calls into a library, check the names against the **library**,
 not against the exemplar. Do not read for this — ask:
 
 ```bash
@@ -481,7 +491,7 @@ dead line reached nine generated controllers at once before anything ran.
 scripts/query.py imports <an-existing-member> --chain
 ```
 
-Every layer has something that makes a new member take effect — a package
+Every family has something that makes a new member take effect — a package
 `__init__` that imports it, a registry it is added to, a generator that walks
 it. **This is where generated code fails silently.** The definition is perfect,
 nothing errors, and the thing simply never happens.
@@ -489,7 +499,7 @@ nothing errors, and the thing simply never happens.
 `--chain` follows package `__init__` re-exports upward, because the file that
 makes a definition take effect is often several hops from the definition, and
 **every hop is another file that has to be edited**. Name an existing member of
-the layer rather than the base class: you want the path a sibling already
+the family rather than the base class: you want the path a sibling already
 travels, which is the path yours must travel too.
 
 Find that chain now, before generating, so the files it forces you to edit are
@@ -516,15 +526,15 @@ delete behaviour before the entities exist, or about a barrel file before you
 know how many modules there are. **Ask at each point as it arrives.**
 
 ```bash
-scripts/query.py questions --path '<source layer>'     --target-path '<generated layer>'
+scripts/query.py questions --path '<source family>'     --target-path '<generated family>'
 ```
 
-`questions` ranks what this layer forces by **what it costs to get wrong** — how
-irreversible the kind of choice is, how genuinely forked the layer is, and
+`questions` ranks what this family forces by **what it costs to get wrong** — how
+irreversible the kind of choice is, how genuinely forked the family is, and
 whether the majority form is a fossil. It excludes anything already recorded,
 and anything that is really the domain rather than a decision.
 
-**Pass `--target-path` once the target holds the layer.** That is what makes
+**Pass `--target-path` once the target holds the family.** That is what makes
 "the target outranks the source" true of questions and not merely of `shape`:
 anything the generated code is unanimous about is read back and reported, never
 asked. Without it the command has no way to know the target's layout -- atlas
@@ -536,9 +546,9 @@ single glob matches both.
 1. **The spec** — the entities and relations. From the request, never from the
    codebase. Restate it before generating; a wrong noun caught here costs a
    sentence and caught later costs the pass.
-2. **Structure** — flat or grouped, where the layer lives, what the packages are
+2. **Structure** — flat or grouped, where the family lives, what the packages are
    called. Cheap to ask, expensive to change once imports exist.
-3. **Conventions** — whatever `questions` ranks for that layer.
+3. **Conventions** — whatever `questions` ranks for that family.
 4. **The platform seam** — what the source assumes and the target does not. The
    *target* settles these, and the source cannot help.
 5. **Wiring** — when step 5 reveals a chain with more than one reasonable shape.
@@ -580,6 +590,15 @@ Two lines in that output decide how much it is worth:
 - **`SPLIT`** — counting by module and counting by codebase disagree, which
   means one large repository is carrying the verdict. The corpus does not
   settle it; say that rather than quoting either number.
+- **How many codebases produced the verdict**, which is not the same number as
+  the module counts and is the one that decides whether it means anything.
+  Measured, not hypothetical: React server state asked with two React
+  repositories indexed said *corpus favours `useQuery`, atlas DISAGREES*; asked
+  again with four, the same command said *corpus favours `useState`, atlas
+  agrees*. Nothing had changed but the sample. The first verdict was already on
+  its way to the user as evidence. **Quote the sample size whenever you quote
+  the number** — two is not a corpus, a framework's own test suite is not an
+  application, and if the sample embarrasses the claim, that is the finding.
 - **`*` beside a repository** — a shallow clone, so every date in its row is
   the date it was fetched. The counts still stand; the dates are not history,
   and `AGEING` cannot mean anything against them. `scripts/fetch.py --deepen`
@@ -592,11 +611,14 @@ consequence produces a table with no meaning.
 **And the decisions the source never made.** `questions` reports what is *in*
 the index, so it can raise a fork the source contains and never an absence:
 something the source does not do at all leaves no record to rank. Those are the
-expensive ones -- no relationships, no delete policy, no timestamps -- and
-`references/decisions.md` lists them per layer kind. Check it against the layer
-being generated, raise what is both absent and load-bearing, and mark each one
-as a departure from the source so the user is choosing rather than being
-steered.
+expensive ones -- no relationships, no delete policy, no timestamps, no
+migrations, no auth, no logging -- and no query will ever surface one. Nothing
+substitutes for knowing what a family of this kind normally has to settle and
+checking it yourself. Raise what is both absent and load-bearing **for what was
+asked**, ranked by what it costs to get wrong -- adding a column later is a
+migration, and discovering that deleting a pupil destroyed four years of records
+is not recoverable at all. Mark each one as a departure from the source, so the
+user is choosing rather than being steered.
 
 **`questions` in `config.json` is a policy, not a count:**
 
@@ -740,15 +762,15 @@ that does not exist:
 ```bash
 scripts/index.py
 scripts/query.py conform \
-    --repo <source> --path '<source layer>' \
-    --target-repo <target> --target-path '<generated layer>' [--kind func]
+    --repo <source> --path '<source family>' \
+    --target-repo <target> --target-path '<generated family>' [--kind func]
 scripts/query.py calls --on <library or base>
 ```
 
 `conform` reports what is ALWAYS true of the source and not of the output. Every
 row is either a departure you can name or a mistake; there is no third kind.
 
-**Pass `--kind func` when the layer's unit is the function** — a component, a
+**Pass `--kind func` when the family's unit is the function** — a component, a
 hook, a route handler. The default reads classes, and on a directory of forty
 components it reports that there is nothing to check rather than that it is
 looking for the wrong thing. It now says which, but the wrong answer is still
@@ -760,7 +782,7 @@ there is no contract here and the run proved nothing — narrow the filter until
 the source is one family. And a **one- or two-member side** makes "always true"
 trivially true; read those rows as description, not as a rule.
 
-**Rung 2 — the entry point runs.** Execute the thing the layer exists to feed:
+**Rung 2 — the entry point runs.** Execute the thing the family exists to feed:
 the generator, the migration, the server startup. Well-formed code that no one
 has run is not working code.
 
@@ -778,7 +800,7 @@ to make, and watch each one:
 Every one of those can be declared, generated perfectly, and not happen. That is
 the whole reason this skill exists, and it is invisible to rungs 1 and 2.
 
-**Rung 4 — pin it in the layer's own tests**, so the next change has to keep it
+**Rung 4 — pin it in the family's own tests**, so the next change has to keep it
 true. Rung 3 proves it once; rung 4 proves it from then on.
 
 `conform --json` belongs here too: it prints the result and nothing else, so the
@@ -828,7 +850,7 @@ Six questions, and they are deliberately not about correctness:
 1. **Is this the simplest thing that satisfies the request?** Not the simplest
    imaginable — the simplest that meets what was asked and keeps the contract.
 2. **What is here that nothing needs?** An abstraction with one implementation,
-   a parameter every caller passes the same value for, a layer that only
+   a parameter every caller passes the same value for, a family that only
    forwards. Generation tends to produce these because the exemplar had a reason
    for them that the target does not.
 3. **Would I build it this way starting today**, knowing the brief from step 1
@@ -880,7 +902,7 @@ CHOICES -- say a number to change one, and I will re-run that part
   1. primary key      Uuid surrogate            2 of 3 sources; the third uses
                                                 a natural String key
   2. timestamps       created_at only           87% have it; updated_at is 12%
-  3. delete behaviour ondelete='CASCADE'        the layer varies; the request
+  3. delete behaviour ondelete='CASCADE'        the family varies; the request
                                                 said "belongs to"
   4. table naming     snake_case plural         ALWAYS in the source
   5. relationships    many-to-one only     DEPARTURE  atlas declares none;
@@ -939,24 +961,31 @@ Then state, briefly:
   and why — and say plainly if it found nothing. A review whose findings never
   reach the report has not happened; the user cannot overrule a regret they were
   never told about
-- **what the index could not see**, where it bears on what was asked. Deployment,
-  CI, dependency manifests and observability are not indexed at all
-  (`references/decisions.md`), so silence about them is not evidence they are
-  fine
+- **what the index could not see**, where it bears on what was asked.
+  **Deployment, CI/CD, build and packaging, and observability are indexed as
+  zero files** -- `.github/workflows`, Dockerfiles and YAML are not read at all.
+  Nothing in this skill can check them, so it must not imply it has: saying "I
+  have not looked at how this is deployed, because nothing about deployment is
+  in the index" costs one sentence and is the difference between a gap the user
+  knows about and one they do not. Configuration is **partial** -- config
+  modules are indexed, `.json` and `.env` values are not; test strategy is
+  partial in the same way, since `proof` finds that tests exist and not whether
+  they are any good. Dependency manifests **are** indexed, and `deps --on NAME`
+  answers who declares a package
 
-And report **what generating found wrong in the source**. Reading a layer closely
-enough to reproduce it, then running the result, exercises that layer harder than
+And report **what generating found wrong in the source**. Reading a family closely
+enough to reproduce it, then running the result, exercises that family harder than
 its own repository may ever have — a method that is never called, a convention
 two files disagree about, a constraint that was never enforced. The source is
 read-only, but the finding is not: hand it back, with the file and line. Working
 around it silently leaves the next person to discover it again.
 
-## When the layer does not exist yet
+## When the family does not exist yet
 
 If nothing in the index resembles what was asked for, say that. Generating a
-layer with no exemplar is ordinary work, not this skill's method — the skill's
+family with no exemplar is ordinary work, not this skill's method — the skill's
 value is fidelity to existing code, and there is none to be faithful to. Offer
-the nearest layer as a source of conventions instead.
+the nearest family as a source of conventions instead.
 
 ## Boundaries
 
@@ -989,17 +1018,9 @@ the nearest layer as a source of conventions instead.
 - `MANUAL.md` is written for the person, not for you: what each command answers,
   how to read `shape` output, and what the tool cannot do. Point them at it when
   they ask how to run something themselves.
-- `references/decisions.md` holds the decisions each kind of layer normally
-  faces, including the ones the source never made -- an absence produces no
-  index record, so nothing else can surface it.
 - `references/corpus.md` says what each reference codebase is for, the rule that
   decides what goes in -- index how a technology is *used*, not how it is
   implemented -- and the corpus's known gaps.
-- `references/alternatives.md` is its mirror: what the source decided once,
-  everywhere, and never revisited. Unanimity is reported as contract and
-  produces no question, so the most embedded choice in a codebase is the one
-  nothing raises. Read it with `practice`, and mind the gate -- corpus evidence
-  or a named failure, or say nothing.
 - `references/generating.md` holds the detail: turning prose into a spec,
   reading `shape` output closely, what to do when exemplars conflict inside one
   codebase, why not to improve a signature that looks clumsy, why code that

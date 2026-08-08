@@ -7,10 +7,10 @@ Most worked examples below are Python, because that is where they were learned.
 Each has an analogue in the other three languages, and where the analogue is not
 obvious it is named. Two are worth knowing before you start:
 
-- **The unit of a layer is not always a class.** A React component, a hook, a
+- **The unit of a family is not always a class.** A React component, a hook, a
   route handler and most modern JavaScript are functions, and `shape --kind
-  class` describes a directory of forty of them as empty. Read a layer with
-  `--kind func` when its members are functions, and remember that such a layer's
+  class` describes a directory of forty of them as empty. Read a family with
+  `--kind func` when its members are functions, and remember that such a family's
   contract lives almost entirely in what it *calls*.
 - **The registration chain has a different name in each language.** In Python it
   is `__init__.py`, in TypeScript and JavaScript `index.ts` / `index.js`, and in
@@ -26,21 +26,21 @@ than from the user.
 
 Extract from the sentence only what the codebase cannot tell you:
 
-- **the layer** — which part of the application (settled by `layers`)
+- **the family** — which part of the application (settled by `families`)
 - **the entities** — the domain nouns, and any fields the user named explicitly
 - **the relations** — which entity points at which
 
 Take from the codebase, never ask:
 
 - the base class, the file layout, the naming of files and tables and indexes
-- which methods a member of this layer carries
+- which methods a member of this family carries
 - the key strategy, the imports, the registration chain
 - every default the ALWAYS section reports
 
 Ask only when a **VARIES** row is genuinely load-bearing for what was requested
 and nothing in the sentence settles it. Two entities that "belong to" each other
 tell you there is a foreign key; they do not tell you the delete behaviour, and
-if the layer varies on that, it is worth one question.
+if the family varies on that, it is worth one question.
 
 Restate the spec you extracted in one short block before generating. A wrong
 noun caught there costs a sentence; caught after generation it costs the pass.
@@ -62,7 +62,7 @@ noun caught there costs a sentence; caught after generation it costs the pass.
   than half the entities reference another. The percentage is describing the
   domain, not a disagreement about style.
 
-That last reading matters most. A `VARIES` row is usually a fork in the layer,
+That last reading matters most. A `VARIES` row is usually a fork in the family,
 and the fork is what the request has to choose. Find which side it is on before
 generating, not while.
 
@@ -78,7 +78,7 @@ minority is recent, the minority is the convention and the majority is the
 fossil — say so and ask, rather than following the count.
 
 **Attribute detail.** `ALWAYS id` means the name is universal. It says nothing
-about the type, and a layer that agrees on names while disagreeing on types has
+about the type, and a family that agrees on names while disagreeing on types has
 no contract worth copying. Read the `ATTRIBUTE DETAIL` section for what each
 attribute actually is:
 
@@ -94,8 +94,8 @@ default. One `also:` line of this kind is worth more than any count on its own.
 
 ## When one codebase disagrees with itself
 
-`shape` over a whole layer can report a mush of low percentages because the
-"layer" is really two layers sharing a directory. The fix is to split the set,
+`shape` over a whole family can report a mush of low percentages because the
+"family" is really two families sharing a directory. The fix is to split the set,
 not to average it:
 
 ```bash
@@ -139,10 +139,9 @@ without comment is right; reproducing it without ever telling the user there was
 an alternative is not. Where the source simply does not do something -- no
 timestamps, no relationships, no delete policy -- there is no `VARIES` row to
 find and no question gets asked, because an absence leaves no record in the
-index at all. `references/decisions.md` is the checklist for those, per layer
-kind. Propose, mark it as a departure, and let the user decide.
+index at all. Propose, mark it as a departure, and let the user decide.
 
-### The two silences, and the two checklists
+### The two silences
 
 There are exactly two ways a decision escapes without ever being raised, and
 they need different instruments:
@@ -150,10 +149,10 @@ they need different instruments:
 | The source... | Leaves in the index | Caught by |
 |---|---|---|
 | does it two ways | a `VARIES` row | `questions` |
-| does not do it at all | nothing | `references/decisions.md` |
-| does it one way, always | an `ALWAYS` row read as contract | `references/alternatives.md` + `practice` |
+| does not do it at all | nothing | knowing the family kind; no query can |
+| does it one way, always | an `ALWAYS` row read as contract | `practice` |
 
-The third line is the newest and the least intuitive, because an `ALWAYS` row
+The third line is the least intuitive, because an `ALWAYS` row
 looks like the *opposite* of a silence -- it is the loudest thing `shape`
 prints. But loud is not the same as examined. Unanimity is what makes something
 a contract, and it is equally what makes it invisible as a choice: nothing forks,
@@ -174,10 +173,10 @@ doing its job:
 
 The failure mode of this whole section is not missing an improvement. It is a
 generation that spends its attention arguing about the exemplar's taste instead
-of reproducing it. Fidelity is still the default. These checklists exist for the
-handful of rows where the default is genuinely wrong, and a proposal without
-evidence -- from `practice`, or from a failure you can name -- is noise wearing
-the costume of diligence.
+of reproducing it. Fidelity is still the default. Raise the handful of cases
+where the default is genuinely wrong, and nothing else -- a proposal without
+evidence, from `practice` or from a failure you can name, is noise wearing the
+costume of diligence.
 
 ## Working from one directory is not working
 
@@ -235,7 +234,7 @@ cannot tell you the code is right. An entry point that runs proves the wiring,
 not the behaviour. Only rung 3 touches the guarantees that fail silently, and
 only rung 4 keeps them true after the next change.
 
-Name what you did not check, in the same breath. A layer whose SQL Server
+Name what you did not check, in the same breath. A family whose SQL Server
 branches have never executed is generated and partly unverified, and saying so
 costs a sentence — while calling it working because it looked right costs
 whoever believes you.

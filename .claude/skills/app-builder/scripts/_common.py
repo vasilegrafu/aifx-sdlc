@@ -156,7 +156,7 @@ def configured_repositories() -> list[dict]:
     cfg = load_config()
     # `repositories` was the earlier spelling. Kept for the same reason as
     # `references`: a renamed key does not fail, it returns nothing -- and a
-    # config with no exemplars produces a skill that reports every layer as
+    # config with no exemplars produces a skill that reports every family as
     # missing rather than saying it was pointed at nothing.
     entries = cfg.get("exemplar_corpus")
     if entries is None:
@@ -178,7 +178,7 @@ def configured_references() -> list[dict]:
     question that separates a live convention from a fossil that happens to
     hold a majority.
 
-    They must never reach `shape`, `layers`, `exemplars`, `questions` or
+    They must never reach `shape`, `families`, `exemplars`, `questions` or
     DISAGREEMENTS. Nine reference repositories outnumber one exemplar, so
     letting them into a contract computation replaces the convention being
     reproduced with an average of the internet -- the same failure as averaging
@@ -206,9 +206,9 @@ def configured_solution() -> dict:
     **Not indexed.** It is the destination rather than a source, and a stored
     copy of it is stale the moment anything is generated into it -- while its
     records, being usually more numerous than the slice of the exemplar being
-    copied, would dominate any measurement of what a layer looks like. The two
+    copied, would dominate any measurement of what a family looks like. The two
     commands that genuinely need to see it -- `conform` and `questions
-    --target-path` -- read it fresh from disk, scoped to the layer in question.
+    --target-path` -- read it fresh from disk, scoped to the family in question.
     `index.py --with-solution` overrides that.
     """
     entry = load_config().get("solution") or "solution"

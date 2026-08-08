@@ -71,7 +71,7 @@ def _calls(fn) -> tuple[list, list]:
     function's, which is the difference between being pointed at a call site and
     being pointed at a forty-line method and told to look.
 
-    What a layer *calls* is not visible anywhere else in the index, and it is
+    What a family *calls* is not visible anywhere else in the index, and it is
     where a method that does not exist hides: the definition is perfect, the
     file imports, and the call raises only when something finally runs it.
 

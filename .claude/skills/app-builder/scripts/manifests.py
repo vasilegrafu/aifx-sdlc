@@ -9,7 +9,7 @@ code is written than most of what `shape` reports -- and none of it is visible
 in an import list alone, because an import proves a package is used somewhere
 while a manifest says what the project committed to.
 
-It also closes a specific hole. A generated layer that imports a package nobody
+It also closes a specific hole. A generated family that imports a package nobody
 declared installs nothing, builds nowhere, and fails at run time with a module
 resolution error that reads as a path problem.
 
@@ -226,7 +226,7 @@ def extract(root: Path, repo: str, skip, keep=None):
 
     A record carries no `imports`, `bases` or `name`, so every command that
     filters on those ignores it. Commands that iterate raw records must skip
-    kinds they do not understand -- `layers` does.
+    kinds they do not understand -- `families` does.
     """
     for path in find(root, skip, keep):
         reader = _reader(path)

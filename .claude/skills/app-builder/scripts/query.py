@@ -5,14 +5,14 @@ codebase of any size can be understood without reading it.
 
     config      which codebases and which destination are configured
     proof       how a codebase proves itself: tests, entry points, interpreter
-    layers      what parts exist, and which is the one you were asked about
+    families    what parts exist, and which is the one you were asked about
     calls       methods invoked on a name vs. the ones that name defines
     conform     whether generated code still keeps the contract that produced it
     find        the classes/functions matching a filter -- and their files
     shape       what is ALWAYS true of a set of classes vs. what VARIES
     exemplars   the most typical file to copy, and the outlier that shows why
     imports     who imports a symbol -- the wiring that makes it take effect
-    questions   the decisions a layer forces, ranked by what they cost
+    questions   the decisions a family forces, ranked by what they cost
     practice    how a reference corpus resolves a choice vs. the exemplar
     deps        what a codebase declares it depends on, and what it runs
     meta        what this index covers and when it was built
@@ -59,7 +59,7 @@ def head(expr: str) -> str:
 def symbol_root(expr: str) -> str:
     """`Base` from `Base[Model]`, `Base<T>`, `Base(x)`; `app.route` keeps its dot.
 
-    Generic parameters are not part of the name. A layer written
+    Generic parameters are not part of the name. A family written
     `Repository[Student]`, `Repository[Subject]` is one base class used twice,
     and treating the parameter as part of it reports two families of one.
     """
@@ -76,7 +76,7 @@ def symbol_matches(expr: str, wanted: str) -> bool:
     Exact on the root, not a substring. `--base Model` matching `BaseModel`,
     `ModelForm` and `db.Model` alike was silently blending families inside the
     one command whose job is separating them -- and the blend is invisible,
-    because the output looks like a layer that merely disagrees with itself.
+    because the output looks like a family that merely disagrees with itself.
 
     Two accommodations, both narrow. A dotted expression matches on its last
     segment, so `--decorator route` finds `app.route` and `--base Model` finds
@@ -210,7 +210,7 @@ def describe_size(rec) -> str:
 def kinds_for(args) -> tuple[str, ...]:
     """`shape` and `exemplars` describe one kind at a time, deliberately.
 
-    A layer of classes and a layer of functions have different shapes, and
+    A family of classes and a family of functions have different shapes, and
     measuring them together reports a form neither one has -- the same error as
     averaging two codebases.
     """
@@ -226,7 +226,7 @@ def param_names(param: str) -> list[str]:
     A destructured parameter is recorded as its source text, because that is
     the honest record of what was written -- but `{ sx = undefined, children,
     ...props }` is one useless feature where it should be three useful ones.
-    A component layer's real contract is that every component takes `children`,
+    A component family's real contract is that every component takes `children`,
     and that is only visible once the blob is split.
     """
     p = (param or "").strip()
@@ -258,14 +258,14 @@ def features(rec) -> set[str]:
     """The comparable shape of one definition, as a set of `kind:item` strings.
 
     Both record kinds reduce to the same form, so `shape`, `exemplars` and
-    `conform` can measure a layer of classes and a layer of functions with one
+    `conform` can measure a family of classes and a family of functions with one
     piece of machinery.
 
-    What a definition *calls* is part of its shape. In a class-based data layer
+    What a definition *calls* is part of its shape. In a class-based data-model family
     that is a minor signal next to its attributes; in a React or hook-based
     codebase it is nearly the whole convention, because nothing is declared --
     `useState`, `useSelector` and a codebase's own `useConfig` appear only as
-    calls, and a measure that ignored them would report that such a layer has
+    calls, and a measure that ignored them would report that such a family has
     no conventions at all.
     """
     if rec["k"] == "func":
@@ -410,7 +410,7 @@ def cmd_config(args):
         print(f"\nREFERENCES    {len(refs)} codebase(s), "
               f"{len(refs) - len(missing)} present")
         print("              evidence about what the wider world does, never a"
-              "\n              template. Held out of shape, layers, exemplars,"
+              "\n              template. Held out of shape, families, exemplars,"
               "\n              questions and DISAGREEMENTS; read by `practice`,"
               "\n              and by `deps` only with --references.")
         print(f"              under {display_path(corpus_root())}/")
@@ -503,7 +503,7 @@ LANGUAGES = {
         "toolchain": ("node_modules/sass/package.json",),
     },
     "html": {
-        # A template layer proves itself through whatever renders it, so its
+        # A template family proves itself through whatever renders it, so its
         # proof files are the web framework's, not its own.
         "proof_files": ("manage.py", "pyproject.toml", "package.json"),
         # Template inheritance has no barrel file: a page names its parent
@@ -743,13 +743,13 @@ def cmd_meta(args):
             print(f"{k:>10}: {v}")
 
 
-def cmd_layers(args):
+def cmd_families(args):
     dirs = defaultdict(lambda: {"files": 0, "classes": 0, "loc": 0,
                                 "bases": Counter(), "names": []})
     for rec in read_index():
         # Only kinds this counts. Anything else -- a manifest, an unparsed file
         # -- would otherwise create a directory row with no files and no classes
-        # in it, which reads as a layer that exists and is empty.
+        # in it, which reads as a family that exists and is empty.
         if rec["k"] not in ("module", "class"):
             continue
         if args.repo and rec["repo"] != args.repo:
@@ -894,14 +894,14 @@ _FRESH_CACHE: dict[str, list] = {}
 
 
 def read_target_fresh(path_glob: str) -> list[dict]:
-    """Parse the generated layer from disk, now, and return its records.
+    """Parse the generated family from disk, now, and return its records.
 
     The solution is not indexed -- it is the destination, and a stored copy of
     it is stale the moment anything is generated. So the two commands that
     genuinely need to see it read it directly instead.
 
     Cheap because it is *scoped*. The glob is applied to the walk before
-    anything is parsed, so checking a models layer costs seven files rather
+    anything is parsed, so checking a models family costs seven files rather
     than the whole application -- and the whole application, here, would mean
     re-parsing the 268-file library that is linked into it on every call.
 
@@ -935,7 +935,7 @@ def read_target_fresh(path_glob: str) -> list[dict]:
             # convention, so say what could not be read rather than returning
             # a confident short answer.
             print(f"  note: {len(paths)} {language} file(s) in the generated "
-                  f"layer could not be read -- {reason}")
+                  f"family could not be read -- {reason}")
             continue
         out.extend(extractor.extract(paths, solution["path"],
                                      solution["name"], {}))
@@ -1067,7 +1067,7 @@ def cmd_shape(args):
     if dates_are:
         print(f"  dates: {dates_are}")
 
-    # What the layer is built on. A frontend layer's real contract is often the
+    # What the family is built on. A frontend family's real contract is often the
     # framework rather than anything it declares, and this is the line that says
     # which one to read the rest of the output against.
     tech = Counter()
@@ -1079,7 +1079,7 @@ def cmd_shape(args):
                                          for t, n in tech.most_common(6)))
     if noun == "classes" and args._other_kind > total:
         print(f"  note: {args._other_kind} module-level functions also match this"
-              f" filter and are not\n        described here. If this layer's unit is"
+              f" filter and are not\n        described here. If this family's unit is"
               f" the function -- components,\n        hooks, handlers -- run --kind"
               f" func.")
 
@@ -1118,7 +1118,7 @@ def cmd_shape(args):
         if not always and not usually and not varies:
             print("  -")
 
-    # What an attribute IS, not merely that it is there. For a data layer this
+    # What an attribute IS, not merely that it is there. For a data-model family this
     # is the contract: `id` being present everywhere says far less than `id`
     # being `Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)`.
     by_attr: dict[str, list] = defaultdict(list)
@@ -1129,7 +1129,7 @@ def cmd_shape(args):
                 if pct(len(a), total) >= args.usually]
     if detailed:
         print(f"\n== ATTRIBUTE DETAIL ==   (present in >= {args.usually}% of {noun})")
-        print("   the modal form, and how much of the layer agrees on it\n")
+        print("   the modal form, and how much of the family agrees on it\n")
         width = max(len(n) for n, _ in detailed)
         for name, uses in sorted(detailed, key=lambda x: -len(x[1]))[: args.limit]:
             anns = Counter(a["ann"] for a in uses if a["ann"])
@@ -1439,7 +1439,7 @@ WHY = {
     "assign": "a class-level declaration: structural, and read by the framework",
     "attrcall": "how the attribute is constructed, not merely that it exists",
     "attr": "whether this field exists at all",
-    "method": "whether members of this layer carry this method",
+    "method": "whether members of this family carry this method",
 }
 
 
@@ -1491,7 +1491,7 @@ def target_settled(args, ranked) -> dict[str, str]:
     "The target outranks the source" is stated all through this skill, and it
     applies to questions before it applies to anything else: a choice visible in
     code that already exists is not a question, it is a fact to read back. The
-    target is unanimous or it is not -- a layer where half the members do it is
+    target is unanimous or it is not -- a family where half the members do it is
     still a live decision.
 
     Needs `--target-path`, because the target's layout is not the source's:
@@ -1536,7 +1536,7 @@ def target_settled(args, ranked) -> dict[str, str]:
 
 
 def cmd_questions(args):
-    """The decisions this layer would force, ranked by what they cost to get wrong.
+    """The decisions this family would force, ranked by what they cost to get wrong.
 
     `shape` reports everything that varies. Most of it does not deserve a
     question: it is one odd file, or a default with a single exception. This
@@ -1637,7 +1637,7 @@ def cmd_questions(args):
     ranked = sorted(best.values(), key=lambda c: -c[0])
 
     # Answered by the code already. The target is indexed and it outranks the
-    # source, so if the generated layer is unanimous about something there is
+    # source, so if the generated family is unanimous about something there is
     # nothing to ask -- reading it back is cheaper than a question, and asking
     # anyway invites the user to re-decide what they already decided.
     by_code = target_settled(args, ranked)
@@ -1670,7 +1670,7 @@ def cmd_questions(args):
           f"-> {len(ranked)} candidate decisions, showing {len(asked)}\n")
     if len(ranked) > total * 2:
         print(f"  NOTE: {len(ranked)} candidates for {total} members means this"
-              f" is not one layer.\n  These questions average several families"
+              f" is not one family.\n  These questions average several families"
               f" together and will not be the\n  right ones. Narrow with --base,"
               f" --decorator or a deeper --path first.\n")
     if by_code:
@@ -1703,14 +1703,14 @@ def cmd_questions(args):
 
 
 def cmd_conform(args):
-    """Does the generated layer still satisfy the contract that produced it?
+    """Does the generated family still satisfy the contract that produced it?
 
     `shape` says what is ALWAYS true of the source. Nothing else checks that the
     output kept it. This does: same measure, both sides, difference reported.
 
     `--kind func` is not a refinement, it is the difference between this command
     working and not existing. A React component, a hook and a route handler are
-    functions, and while this read classes only, every function layer this skill
+    functions, and while this read classes only, every function family this skill
     can generate had **no rung-8 check at all** -- the one step that asks whether
     the output still keeps the contract simply had nothing to say about half of
     what the skill builds.
@@ -1719,7 +1719,7 @@ def cmd_conform(args):
     noun = "functions" if kinds == ("func",) else "classes"
     source, target, tech = [], [], {}
     # Counted so a filter that matched the *other* kind can say so. Silence
-    # there reads as "the layer is empty", which for a directory of forty
+    # there reads as "the family is empty", which for a directory of forty
     # components is the wrong conclusion drawn confidently.
     other_source = other_target = 0
     for r in read_index():
@@ -1764,10 +1764,10 @@ def cmd_conform(args):
         if not n:
             return ""
         if kinds == ("func",):
-            return (f"\n  The filter matched {n} class(es). This layer's unit"
+            return (f"\n  The filter matched {n} class(es). This family's unit"
                     " looks like the class -- run --kind class.")
         return (f"\n  The filter matched {n} module-level function(s). If this"
-                " layer's unit is the\n  function -- components, hooks,"
+                " family's unit is the\n  function -- components, hooks,"
                 " handlers are -- run --kind func.")
 
     def nothing_matched(message: str) -> None:
@@ -1959,7 +1959,7 @@ def cmd_imports(args):
         if len(subclasses) > args.limit:
             print(f"  ... {len(subclasses) - args.limit} more (--limit)")
 
-    # For a template layer this *is* the registration chain. A page names its
+    # For a template family this *is* the registration chain. A page names its
     # parent directly -- there is no barrel file to re-export it -- so the hops
     # that matter go downward through inheritance: change a base template and
     # every level below it renders differently, and none of them errors.
@@ -1991,7 +1991,7 @@ def cmd_deps(args):
 
     An import proves a package is used somewhere; a manifest says what the
     project committed to, which is not the same fact and is the one a generated
-    layer has to respect. Code that imports a package nobody declared installs
+    family has to respect. Code that imports a package nobody declared installs
     nothing and fails at run time with a resolution error that reads as a path
     problem.
 
@@ -2320,7 +2320,7 @@ def main(argv=None) -> int:
                         "leave a truncated shard and a confident summary")
     p.set_defaults(fn=cmd_meta)
 
-    p = sub.add_parser("layers", help="what parts exist")
+    p = sub.add_parser("families", help="what parts exist")
     p.add_argument("--repo")
     p.add_argument("--depth", type=int, default=0, help="roll up to N path segments")
     p.add_argument("--path", help="glob on the file path")
@@ -2328,7 +2328,7 @@ def main(argv=None) -> int:
                    help="exclude paths matching this glob; repeatable")
     p.add_argument("--lang", help="restrict to one language, e.g. python, typescript")
     p.add_argument("--limit", type=int, default=40)
-    p.set_defaults(fn=cmd_layers)
+    p.set_defaults(fn=cmd_families)
 
     p = sub.add_parser("find", help="definitions matching a filter")
     add_filters(p)
@@ -2396,10 +2396,10 @@ def main(argv=None) -> int:
     p.add_argument("--path", help="glob on the file path")
     p.set_defaults(fn=cmd_practice)
 
-    p = sub.add_parser("conform", help="does the generated layer still keep the contract")
-    p.add_argument("--path", required=True, help="glob selecting the source layer")
+    p = sub.add_parser("conform", help="does the generated family still keep the contract")
+    p.add_argument("--path", required=True, help="glob selecting the source family")
     p.add_argument("--repo", help="restrict the source side to one repository")
-    p.add_argument("--target-path", required=True, help="glob selecting the generated layer")
+    p.add_argument("--target-path", required=True, help="glob selecting the generated family")
     p.add_argument("--target-repo", help="restrict the target side to one repository")
     add_kind_and_tech(p)
     p.add_argument("--json", action="store_true",
@@ -2408,13 +2408,13 @@ def main(argv=None) -> int:
                         "was broken' from 'nothing was checked'")
     p.set_defaults(fn=cmd_conform)
 
-    p = sub.add_parser("questions", help="the decisions this layer forces, ranked by cost")
+    p = sub.add_parser("questions", help="the decisions this family forces, ranked by cost")
     add_filters(p)
     add_kind_and_tech(p)
     p.add_argument("--usually", type=int, default=60,
                    help="percent above which an attribute counts as universal")
     p.add_argument("--target-path", metavar="GLOB",
-                   help="the generated layer. Anything it is unanimous about is "
+                   help="the generated family. Anything it is unanimous about is "
                         "already answered by the code and is not asked -- the "
                         "target outranks the source")
     p.add_argument("--target-repo",

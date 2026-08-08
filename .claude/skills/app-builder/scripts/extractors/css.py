@@ -1,13 +1,13 @@
 """Stylesheets: CSS, SCSS and Less.
 
-A stylesheet layer has a contract, and it is the same shape as any other once
+A stylesheet family has a contract, and it is the same shape as any other once
 you stop thinking of it as presentation:
 
     @import "mixins/banner"     ->  an import, and a chain like any other
     @mixin button-variant(...)  ->  a method
     @include button-variant(…)  ->  a call
     $card-spacer-y: 1rem        ->  an attribute, with its value
-    --#{$prefix}card-bg: …      ->  an attribute -- the design token layer
+    --#{$prefix}card-bg: …      ->  an attribute -- the design token family
 
 The two failures worth catching are the familiar ones wearing different
 clothes. **A partial nobody imports does nothing** — no error, no style, and
@@ -42,7 +42,7 @@ EXTEND = re.compile(r'@extend\s+([.%#][\w-]+)')
 VARIABLE = re.compile(r'^\s*(\$[A-Za-z_][\w-]*)\s*:\s*([^;]+);', re.MULTILINE)
 # Bootstrap writes every design token as `--#{$prefix}card-spacer-y`. A pattern
 # wanting `--[a-z]` finds 15 of them where there are 548, and reports a token
-# layer that does not exist. The interpolation is part of the name.
+# family that does not exist. The interpolation is part of the name.
 CUSTOM_PROP = re.compile(r'^\s*(--[\w-]*(?:#\{[^}]*\}[\w-]*)*)\s*:\s*([^;]+);',
                          re.MULTILINE)
 INTERPOLATION = re.compile(r'#\{[^}]*\}')
@@ -179,7 +179,7 @@ def extract(files, root, repo, commits):
         if body_includes:
             # The stylesheet's own body: what it calls outside any mixin, which
             # on a real design system is most of the calls. A `func` record is
-            # where `shape` looks for a layer's vocabulary.
+            # where `shape` looks for a family's vocabulary.
             yield {
                 "k": "func", "lang": LANGUAGE, "repo": repo, "path": relpath,
                 "mtime": mtime, "commit": commit, "name": name,

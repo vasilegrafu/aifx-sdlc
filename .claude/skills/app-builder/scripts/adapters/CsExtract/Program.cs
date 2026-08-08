@@ -6,7 +6,7 @@
 //
 // One process for the whole repository. Syntax only: no compilation is built,
 // because resolving references would need every project restored, and the
-// structure of a layer is visible without it. The cost of that choice is named
+// structure of a family is visible without it. The cost of that choice is named
 // in references/languages.md -- extension methods cannot be resolved.
 
 using System.Text.Json;
@@ -124,7 +124,7 @@ static JsonObject Method(BaseMethodDeclarationSyntax m, string name,
 
 // Partial types are one type written across several files. `shape` counts
 // classes, so leaving them separate would count one type three times and skew
-// every percentage in the layer. They are merged by fully qualified name.
+// every percentage in the family. They are merged by fully qualified name.
 var classes = new Dictionary<string, JsonObject>();
 var order = new List<string>();
 var records = new List<JsonObject>();

@@ -13,15 +13,25 @@ do, how to run them yourself, and what the output means.
 Two jobs, and the second depends on the first.
 
 **Understanding a codebase.** How is it laid out, what is the contract of a
-layer, which conventions are dying, what does the wiring look like, where do two
+family, which conventions are dying, what does the wiring look like, where do two
 repositories disagree. Answers come from a structural index, so it works on a
 codebase far too large to read.
 
-**Generating a layer that matches.** Models, controllers, endpoints, components
+**Generating a family that matches.** Models, controllers, endpoints, components
 — shaped the way the source shapes them, then checked against the contract that
 produced them.
 
 You can use the first without ever using the second.
+
+**A family is just a set of sibling files that look alike.** Twelve models in
+`models/`, forty handlers in one flat `routes.py`, the components in
+`components/`, or one folder per feature where the siblings are the other
+feature folders. It is not an architectural layer and does not require your
+application to have any: what the method needs is **repetition**, so that you
+are generating the seventh of something and there are six to learn from. If
+nothing in your codebase repeats, there is no contract to be faithful to and
+this tool has no advantage over writing the code by hand — which it will say
+rather than pretend otherwise.
 
 ---
 
@@ -49,9 +59,9 @@ Point it at codebases in `config.json`, at the root of this repository:
   destination, not a source, and a stored copy is stale as soon as anything is
   generated into it. Indexing it also skewed every measurement, because the
   generated app is usually larger than the slice of the exemplar being copied —
-  `shape` over a models layer reported 10 classes of which 7 were the generated
+  `shape` over a models family reported 10 classes of which 7 were the generated
   app. `conform` and `questions --target-path` read it fresh from disk instead,
-  scoped to the layer you name, which is faster and never stale.
+  scoped to the family you name, which is faster and never stale.
   `index.py --with-solution` puts it in the index if you want it there.
 - **`reference_corpus`** — widely-used codebases indexed as **evidence**, never as
   templates. Declared by `repo` URL and fetched into the skill's own
@@ -122,9 +132,9 @@ per-repository filter; `query.py --repo` is where you narrow to one.
 #     index.py --only solution.university      (seconds, not minutes)
 
 # 2. what is in there
-scripts/query.py layers --depth 3
+scripts/query.py families --depth 3
 
-# 3. what is the contract of a layer
+# 3. what is the contract of a family
 scripts/query.py shape --path 'database/*/models/*'
 
 # 4. which file to copy
@@ -147,7 +157,7 @@ it has a subcommand that answers in a few hundred lines.
 ```
 
 **The role is the directory, not a field.** That is what holds references out of
-`shape`, `layers`, `exemplars`, `questions` and `DISAGREEMENTS` — those commands
+`shape`, `families`, `exemplars`, `questions` and `DISAGREEMENTS` — those commands
 do not walk into `reference_corpus/`, so there is no roles map that can be
 absent, stale, or disagree with the index it describes.
 
@@ -167,7 +177,7 @@ twenty sat on disk. A summary that can only be recomputed cannot drift.
 
 ## Reading `shape` — the one thing worth learning
 
-Everything else is navigation. This is the output that tells you what a layer
+Everything else is navigation. This is the output that tells you what a family
 *is*:
 
 ```
@@ -196,7 +206,7 @@ Read it as instructions, not as a report:
   looks.
 - **`nn%`** — usual. Follow it unless you have a reason, and say what the reason
   was.
-- **VARIES** — a fork in the layer, not a weak convention. Usually it means a
+- **VARIES** — a fork in the family, not a weak convention. Usually it means a
   subfamily: *fewer than half the models have a foreign key because fewer than
   half the entities reference another.* Decide which side you are on.
 - **ATTRIBUTE DETAIL** — what an attribute *is*, not that it exists. `id` being
@@ -207,8 +217,8 @@ Read it as instructions, not as a report:
 - **DISAGREEMENTS** — appears when the index holds more than one codebase. If
   one side is your generated target, it has already decided and it wins.
 
-- **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the layer's vocabulary. For a
-  data layer this is a minor section; for anything built on a framework it is
+- **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the family's vocabulary. For a
+  data-model family this is a minor section; for anything built on a framework it is
   the main one, because nothing is declared. `ALWAYS StandardDbCtrl.filter`
   across nine controllers is as much a contract as any base class, and a tenth
   controller calling `.where` instead is the kind of thing that reaches
@@ -218,7 +228,7 @@ Read it as instructions, not as a report:
 narrows when an index holds a backend and a frontend — averaging the two
 describes a form neither one uses.
 
-### The same command, on a React layer
+### The same command, on a React family
 
 ```bash
 scripts/query.py shape --kind func --tech react --path 'webapp/src/components/*'
@@ -235,7 +245,7 @@ scripts/query.py shape --kind func --tech react --path 'webapp/src/components/*'
 ```
 
 `useConfig` is the one worth stopping on: a hook this codebase wrote itself.
-Nothing about it is declared anywhere, and a layer's local convention is
+Nothing about it is declared anywhere, and a family's local convention is
 frequently a name like that one.
 
 ---
@@ -245,12 +255,12 @@ frequently a name like that one.
 **I inherited this codebase and have no idea what is in it**
 
 ```bash
-scripts/query.py layers --depth 3
+scripts/query.py families --depth 3
 scripts/query.py proof             # tests, entry points, interpreter
-scripts/query.py shape  --path '<the layer that looked interesting>/*'
+scripts/query.py shape  --path '<the family that looked interesting>/*'
 ```
 
-**I need to add a tenth model to a layer that has nine**
+**I need to add a tenth model to a family that has nine**
 
 ```bash
 scripts/query.py shape     --base <TheBaseClass>
@@ -267,14 +277,14 @@ nothing errors — the table is simply never created.
 ```bash
 scripts/index.py                   # re-index, target included
 scripts/query.py conform \
-    --repo <source> --path '<source layer>' \
-    --target-repo <target> --target-path '<generated layer>'
+    --repo <source> --path '<source family>' \
+    --target-repo <target> --target-path '<generated family>'
 ```
 
 Every DROPPED row is either a departure you can name or a mistake. There is no
 third kind.
 
-Add `--kind func` when the layer is components, hooks or handlers — the default
+Add `--kind func` when the family is components, hooks or handlers — the default
 reads classes and would report a directory of forty components as having nothing
 to check. Two labels are worth knowing: **NOTHING TO CHECK** means the source
 has no feature shared by all its members, so the run proved nothing and the
@@ -299,7 +309,7 @@ identical — a gate that ignores the flag reports a green build for a check tha
 never ran. A filter that matched nothing is reported the same way: still JSON,
 with an `error` field and `contract_empty` true, so a mistyped `--path` comes
 back inconclusive rather than clean. `questions --json` is the same idea for the
-decisions a layer forces.
+decisions a family forces.
 
 **Is anything calling a method that does not exist?**
 
@@ -394,7 +404,7 @@ in the index when it is rebuilt.
 **What should I actually be asked before generating?**
 
 ```bash
-scripts/query.py questions --path '<layer>' --limit 3
+scripts/query.py questions --path '<family>' --limit 3
 ```
 
 `shape` reports everything that varies. Most of it does not deserve a question.
@@ -403,7 +413,7 @@ Capping the questions does not remove the decisions — it turns the ones past t
 cap into silent guesses, which is why the `questions` setting in `config.json`
 is a policy (`many` / `key` / `none`) rather than a number. Ranking uses what the
 index already knows: how irreversible the kind of decision is, how genuinely
-forked the layer is, and whether the majority form is a fossil.
+forked the family is, and whether the majority form is a fossil.
 
 Two things it deliberately does *not* ask about. **Presence of a field or method
 in a minority** is the domain, not a decision: a model has `instrument_id`
@@ -411,7 +421,7 @@ because that entity references an instrument. And anything the **generated code
 already answers**, when you pass `--target-path`:
 
 ```bash
-scripts/query.py questions --path '<source layer>'     --target-path '<generated layer>'
+scripts/query.py questions --path '<source family>'     --target-path '<generated family>'
 ```
 
 Nothing is remembered between runs. Answers are not recorded anywhere, so every
@@ -425,7 +435,7 @@ once and the questions will be the wrong ones. Narrow it first.
 
 **Which conventions are dying?**
 
-Run `shape` over the layer and read the `AGEING` section. Anything listed
+Run `shape` over the family and read the `AGEING` section. Anything listed
 survives only in files nobody has touched for over a year.
 
 **Is this still how anyone builds it?**
@@ -493,15 +503,15 @@ Filters marked ● are shared by `find`, `shape`, `exemplars`, `imports` and
 |---|---|
 | `config` | which codebases and destination are configured, and whether they exist |
 | `meta` | what an index covers, when built, which languages, what was skipped, `git_dated` (how many **indexed** files got a real commit date), `shallow` (repositories with no history) and `dates_unavailable` (repositories whose history git could not read, so their dates are mtimes) |
-| `layers` | what parts exist — directories, class counts, dominant base |
+| `families` | what parts exist — directories, class counts, dominant base |
 | `find` | the definitions matching a filter, or `--files` for paths alone |
 | `shape` | what is ALWAYS true, what VARIES, what is ageing, where repos disagree |
 | `exemplars` | the most typical file to copy, and the outlier that shows what is optional. **Exemplars only** — the generated target is held out, since copying your own output makes one mistake a convention; `--include-target` or `--repo` overrides |
 | `imports SYMBOL` | who imports it; `--chain` follows re-exports up the registration chain |
 | `calls --on NAME` | methods called on a name vs. the ones it defines |
-| `conform` | whether generated code still keeps the source's contract. Takes `--kind func` and `--tech`, so a component or hook layer can be checked too |
+| `conform` | whether generated code still keeps the source's contract. Takes `--kind func` and `--tech`, so a component or hook family can be checked too |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
-| `questions` | the decisions this layer forces, ranked by what they cost to get wrong |
+| `questions` | the decisions this family forces, ranked by what they cost to get wrong |
 | `practice --on T --versus T` | how the reference corpus resolves a choice, against how your exemplar resolves it |
 | `deps` | what the exemplars and the target declare they depend on and run; `--on NAME` for who declares a package; `--references` widens to the corpus |
 
@@ -517,11 +527,11 @@ the one filter meant to separate them. Put a `*` in the string when you do want
 a pattern: `--base Base*`.
 
 `--limit` is **not** one of them — it is per command, with a default suited to
-that command: `layers` 40, `find` 60, `shape` 25, `imports` 40, `calls` 6,
+that command: `families` 40, `find` 60, `shape` 25, `imports` 40, `calls` 6,
 `proof` 20. `exemplars` takes `-n` instead (default 3), and `conform` takes
 neither, because a contract is not a list you truncate.
 
-Command-specific: `find --files --functions`, `layers --depth`,
+Command-specific: `find --files --functions`, `families --depth`,
 `shape --usually N` (default 60), `imports --chain`,
 `calls --on NAME --defined-in GLOB`,
 `conform --target-repo --target-path --kind --tech --json`,
@@ -552,7 +562,7 @@ without a rebuild.
 `shape` and `exemplars` take `--kind class|func`, and which one you want is not
 a detail. **A React component is a function, not a class.** So is a hook, a
 route handler and most modern JavaScript. `--kind class` (the default) describes
-a layer of classes and would report that a directory of 40 components contains
+a family of classes and would report that a directory of 40 components contains
 nothing at all; `shape` says so when the filter matched more functions than
 classes, but it is worth knowing before you see it.
 
@@ -619,8 +629,8 @@ target is a variable is recorded as unresolved and never guessed at.
 **A Vue 2 component defines nothing this can see.** `export default { methods:
 { … } }` is an object literal, so the Options API yields imports and exports but
 no classes or functions — measured at zero across 130 real components. Vue 3's
-`<script setup>` declares properly and reads fine. Read a Vue 2 layer through
-`imports` and `layers`, not `shape`.
+`<script setup>` declares properly and reads fine. Read a Vue 2 family through
+`imports` and `families`, not `shape`.
 
 **C#: `calls --on <TypeName>` largely does not work.** C# is read syntax-only, so
 an instance call is attributed to the *variable* it was made on, not to that
@@ -638,7 +648,7 @@ never added to the container — a different query.
 
 **`conform` compares feature names.** It will tell you a `__table_args__` is
 missing, and — since calls are part of a definition's shape — that the generated
-layer stopped calling something every source class calls. It will not tell you
+family stopped calling something every source class calls. It will not tell you
 the schema *inside* `__table_args__` changed. Pair it with `calls --on`, which
 covers the other half.
 
@@ -678,8 +688,8 @@ friends are skipped by name, `dist.dev` and the like by prefix, and minified
 bundles by line length. If something still gets through, add `exclude` to that
 repository in `config.json`.
 
-**`shape` output is a mush of low percentages** — the "layer" is really two
-layers sharing a directory. Narrow with `--base`, `--decorator`, or a deeper
+**`shape` output is a mush of low percentages** — the "family" is really two
+families sharing a directory. Narrow with `--base`, `--decorator`, or a deeper
 `--path`, and run it on each side.
 
 **`shape` says it is blending repositories** — because it is. Every percentage
@@ -724,8 +734,6 @@ nothing else repairs it, and nothing else will tell you.
   references/
     generating.md          how to read output closely; what to do when it conflicts
     languages.md           per-language mapping, traps, and how to add one
-    decisions.md           decisions a layer faces that the source never made
-    alternatives.md        decisions the source made once and never revisited
     corpus.md              what is in the reference corpus, and why each one
   scripts/
     index.py               build an index

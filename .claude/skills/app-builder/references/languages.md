@@ -1,6 +1,6 @@
 # Languages: what maps to what, and what does not
 
-The index schema is the seam. Everything downstream — `layers`, `find`, `shape`,
+The index schema is the seam. Everything downstream — `families`, `find`, `shape`,
 `exemplars`, `imports`, `calls`, `conform` — reads records and never asks what
 produced them. A language is added by producing records, not by changing queries.
 
@@ -128,7 +128,7 @@ aliases that are not object types carry no members and are skipped.
 `dist.dev` — minified bundles were indexed as source and reported `Error` as a
 dominant base class. Directories are skipped by prefix as well as by name.
 
-**JSX is the markup.** There is no separate HTML layer worth indexing in a React
+**JSX is the markup.** There is no separate HTML family worth indexing in a React
 codebase; four `.html` files at the root are the shell. Likewise styling under
 MUI or emotion is TypeScript objects, not CSS. One extractor covers what looks
 like three languages.
@@ -140,7 +140,7 @@ contract nobody chose. Look for `.openapi-generator/` and similar markers.
 ### C# — implemented, syntax-only, and one query does not transfer
 
 Roslyn parses; no compilation is built, because that would need every project
-restored and the structure of a layer is visible without it. That one choice is
+restored and the structure of a family is visible without it. That one choice is
 behind everything below.
 
 **`calls --on <TypeName>` mostly does not work, and the reason is bigger than
@@ -233,12 +233,12 @@ reported `Error` as a dominant base class. Files whose longest line runs past a
 couple of thousand characters are build output, and are skipped and counted, not
 read.
 
-### HTML templates — a layer whose contract is inheritance
+### HTML templates — a family whose contract is inheritance
 
 Django and Jinja templates read through the existing schema with no new record
 kind and no new query, because the mapping is exact rather than convenient:
 `{% extends %}` is a base class, `{% block %}` is a method, `{% include %}` is
-a call. On Django's admin layer that yields, immediately:
+a call. On Django's admin family that yields, immediately:
 
 ```
 28 classes
@@ -249,7 +249,7 @@ a call. On Django's admin layer that yields, immediately:
                      VARIES  extrastyle (29%), coltype (25%), bodyclass (25%)
 ```
 
-Which is the contract of that layer, and recognisable to anyone who has written
+Which is the contract of that family, and recognisable to anyone who has written
 a Django admin page. Flask's Jinja templates read the same way — a different
 dialect of one family.
 
@@ -279,7 +279,7 @@ Two traps, both from the 393 real templates rather than from imagination:
 
 A page with no directives and no assets gets a module record but no class
 record. Static markup is not a convention, and one record per marketing page
-would drown the layer that has one.
+would drown the family that has one.
 
 ### Stylesheets — a design system's contract is its tokens
 
@@ -293,7 +293,7 @@ it, because a token's *value* is the contract:
 
 **Every design token is written interpolated.** Bootstrap spells them
 `--#{$prefix}card-spacer-y`, and a pattern wanting `--[a-z]` finds **15** of
-what are really **548** — reporting a token layer that does not exist. The
+what are really **548** — reporting a token family that does not exist. The
 interpolation is stripped from the recorded name so one token groups as one
 across the whole system, which is why the output above reads `--card-spacer-y`.
 
@@ -397,7 +397,7 @@ To add a language:
 2. Add a row to `LANGUAGES` in `query.py`: proof files, barrel file, entry
    point, rung-1 command, and where its toolchain lives.
 3. Add a rung-1 and rung-2 command to the table above.
-4. Index a real codebase in that language and run `shape` on a layer you already
+4. Index a real codebase in that language and run `shape` on a family you already
    understand. If the output does not tell you something you knew, the extractor
    is not recording enough yet.
 

@@ -1,7 +1,7 @@
 """C# extraction, through Roslyn -- the compiler's own parser.
 
 Syntax only: no compilation is built, because that would need every project
-restored, and the structure of a layer is visible without it. What that costs is
+restored, and the structure of a family is visible without it. What that costs is
 named honestly in `references/languages.md` and reported by `query.py calls`:
 an extension method is declared outside the type it appears to hang off, so a
 called-but-not-defined check cannot resolve it from syntax alone.
