@@ -34,7 +34,7 @@ from pathlib import Path
 
 from _common import (SKIP_DIRS, _is_excluded, _is_included,
                      _may_contain_included, _is_skipped_dir,
-                     configured_references,
+                     configured_references, INDEX_SCHEMA,
                      DEFAULT_ROLE, ROLE_DIRS,
                      configured_repositories, configured_solution, display_path,
                      index_file, index_meta, index_path, index_root,
@@ -263,8 +263,8 @@ def git_is_shallow(root: Path) -> bool:
     return proc.returncode == 0 and proc.stdout.strip() == "true"
 
 
-def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
-    """`{relative path: epoch of the last commit that touched it}`.
+def git_last_commit(root: Path, timeout: int = 900) -> tuple[dict[str, int], str]:
+    """`({relative path: epoch of the last commit that touched it}, reason)`.
 
     One `git log` for the whole repository, not one per file. Empty when the
     root is not a working tree -- and empty for anything reached through a
@@ -273,12 +273,30 @@ def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
     This is the only thing in the index that can tell a live convention from a
     fossil. Without it `shape` counts files, and a pattern being abandoned still
     wins on count.
+
+    The second element is why the answer is empty, or `""` when it is not. That
+    is not decoration: this timed out on a large repository and returned `{}`
+    with nothing said, so 1,167 files silently fell back to modification times
+    while `meta` reported `git_dated: 0` and no line anywhere explained it. A
+    tool whose job is reporting what it cannot see must not lose the reason.
+
+    The timeout is generous because the cost is real work: `--name-only` over a
+    full history prints one line per file per commit, and a repository with tens
+    of thousands of commits genuinely needs minutes.
     """
+    note = ""
+
     def run(*args) -> str | None:
+        nonlocal note
         try:
             proc = subprocess.run(["git", "-C", str(root), *args], capture_output=True,
                                   text=True, timeout=timeout, errors="replace")
-        except (OSError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
+            note = (f"`git {args[0]}` did not finish in {timeout}s, so dates fall"
+                    " back to file mtimes")
+            return None
+        except OSError as exc:
+            note = f"git could not be run ({exc}), so dates fall back to file mtimes"
             return None
         return proc.stdout if proc.returncode == 0 else None
 
@@ -288,7 +306,7 @@ def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
     # every file silently falls back to mtime.
     top = run("rev-parse", "--show-toplevel")
     if top is None:
-        return {}
+        return {}, note
     prefix = ""
     try:
         inside = root.resolve().relative_to(Path(top.strip()).resolve()).as_posix()
@@ -298,7 +316,7 @@ def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
 
     out = run("log", "--no-merges", "--format=%ct", "--name-only")
     if out is None:
-        return {}
+        return {}, note
 
     dates: dict[str, int] = {}
     stamp = None
@@ -315,7 +333,7 @@ def git_last_commit(root: Path, timeout: int = 180) -> dict[str, int]:
                 line = line[len(prefix):]
             # log is newest-first, so the first sighting is the latest commit
             dates.setdefault(line, stamp)
-    return dates
+    return dates, note
 
 
 def linked_dirs(root: Path) -> list[Path]:
@@ -494,14 +512,31 @@ def main() -> int:
                 # destroyed rather than left alone.
                 print(f"not a directory, skipped: {display_path(root)}", file=sys.stderr)
                 continue
-            # One handle per repository, all closed together by the stack. A
-            # dozen open files costs nothing, and closing them here rather than
-            # per iteration means an extractor that raises cannot leave a
-            # half-written shard behind that still parses for its first N lines.
+            # Written to a temporary file and moved into place when the
+            # repository is finished, so `index.jsonl` is only ever a *complete*
+            # shard. Its meta.json is written after the move, which makes the
+            # pair consistent by construction: the summary cannot describe
+            # records that were never written.
+            #
+            # This replaced one handle per repository held open until the whole
+            # build finished, and the reasoning that arrangement rested on was
+            # exactly backwards. It argued that closing late stops an extractor
+            # that raises from leaving a half-written shard -- but a shard is
+            # buffered, so holding it open means an interruption discards every
+            # repository's tail at once, *after* each meta.json has already
+            # claimed the full count. Measured, on a build that was killed near
+            # the end: 15 of 26 repositories truncated, 720 module records gone,
+            # four shards empty while their meta claimed 71, 142, 67 and 41
+            # files -- and atlas, the exemplar whose conventions are the whole
+            # contract, silently 85 files short. Nothing errored, every query
+            # answered, and every answer was computed from a codebase that was
+            # not the one on disk.
             role = target.get("role") or DEFAULT_ROLE
             index_path(role, repo).mkdir(parents=True, exist_ok=True)
+            final = index_file(role, repo)
+            pending = final.with_suffix(".jsonl.pending")
             fh = stack.enter_context(
-                index_file(role, repo).open("w", encoding="utf-8", newline="\n"))
+                pending.open("w", encoding="utf-8", newline="\n"))
             repos.append(repo)
             n_before, c_before = files, classes
             f_before, u_before, m_before = funcs, unparsed, manifest_count
@@ -511,8 +546,15 @@ def main() -> int:
             repo_uncovered: dict[str, int] = {}
             repo_skipped: list[dict] = []
             repo_claims: list[str] = []
+            # Files actually indexed that carry a commit date -- counted from
+            # the module records, because `len(commits)` names every path that
+            # ever existed in the history and overstated this tenfold.
             repo_dated = 0
-            commits = {} if args.no_git else git_last_commit(root)
+            dates_note = ""
+            if args.no_git:
+                commits = {}
+            else:
+                commits, dates_note = git_last_commit(root)
             repo_shallow = not args.no_git and git_is_shallow(root)
             if repo_shallow:
                 shallow.append(repo)
@@ -522,10 +564,15 @@ def main() -> int:
                 # Ask its repository too, and key the answers by the name the
                 # solution knows it under.
                 for child in linked_dirs(root):
-                    for path, stamp in git_last_commit(child).items():
+                    child_dates, _ = git_last_commit(child)
+                    for path, stamp in child_dates.items():
                         commits.setdefault(f"{child.name}/{path}", stamp)
-            dated += len(commits)
-            repo_dated = len(commits)
+            if dates_note:
+                # Loud, because the consequence is silent: every AGEING row and
+                # every `last touched` column for this repository becomes a
+                # modification time, which a checkout resets wholesale.
+                print(f"  {repo}: DATES UNAVAILABLE -- {dates_note}",
+                      file=sys.stderr)
             skipped_here = 0
 
             # Group by extractor before calling any of them. Every extractor but
@@ -569,6 +616,8 @@ def main() -> int:
                     elif kind == "module":
                         seen = rec.get("lang") or "unknown"
                         here[seen] = here.get(seen, 0) + 1
+                        if rec.get("commit"):
+                            repo_dated += 1
                     fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 for seen, n in here.items():
                     files += n
@@ -604,6 +653,8 @@ def main() -> int:
                     elif kind == "module":
                         seen = rec.get("lang") or language
                         here[seen] = here.get(seen, 0) + 1
+                        if rec.get("commit"):
+                            repo_dated += 1
                     fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 for seen, n in here.items():
                     files += n
@@ -636,16 +687,30 @@ def main() -> int:
                 "funcs": funcs - f_before, "unparsed": unparsed - u_before,
                 "manifests": manifest_count - m_before, "languages": repo_langs,
             }
+
+            # The shard is complete: flush it, close it, and move it into place
+            # before anything describes it. `os.replace` is atomic, so a reader
+            # sees either the previous shard or this one and never a partial
+            # write -- and an interruption before this point leaves the previous
+            # shard untouched rather than truncated.
+            fh.flush()
+            os.fsync(fh.fileno())
+            fh.close()
+            os.replace(pending, final)
             # Beside the records rather than in a shared file. The totals for a
             # repository are written by the run that read it and by nothing
             # else, so a partial rebuild cannot report a stale number for a
             # repository it did not touch -- there is no shared document for it
             # to forget to update.
             index_meta(role, repo).write_text(json.dumps({
+                "schema": INDEX_SCHEMA,
                 "repo": repo, "role": role, "root": display_path(root),
                 **per_repo[repo],
                 "fidelity": {lang: fidelity.get(lang, "?") for lang in repo_langs},
                 "git_dated": repo_dated, "shallow": repo_shallow,
+                # Why this repository has no dates, when it should have had
+                # some. Read back into the roll-up, so `meta` carries it too.
+                "dates_note": dates_note,
                 "duplicates_skipped": skipped_here,
                 "skipped": repo_skipped,
                 "not_covered": dict(sorted(repo_uncovered.items(),
@@ -680,7 +745,7 @@ def main() -> int:
     per_repo, repos, shallow, skipped_languages = {}, [], [], []
     files = classes = funcs = unparsed = dated = manifest_count = duplicates = 0
     per_language, fidelity, uncovered = {}, {}, {}
-    roles, roots = {}, {}
+    roles, roots, dates_notes = {}, {}, {}
     for shard in indexed_repositories():
         try:
             m = json.loads(shard["meta"].read_text(encoding="utf-8"))
@@ -704,6 +769,8 @@ def main() -> int:
         duplicates += m.get("duplicates_skipped") or 0
         if m.get("shallow"):
             shallow.append(name)
+        if m.get("dates_note"):
+            dates_notes[name] = m["dates_note"]
         for lang, n in (m.get("languages") or {}).items():
             per_language[lang] = per_language.get(lang, 0) + n
         for lang, how in (m.get("fidelity") or {}).items():
@@ -714,6 +781,7 @@ def main() -> int:
             skipped_languages.append({"repo": name, **entry})
 
     meta = {
+        "schema": INDEX_SCHEMA,
         # Displayed, so stored the way it should be read: relative inside the
         # checkout, absolute only for what genuinely lives elsewhere.
         "roots": roots,
@@ -732,6 +800,10 @@ def main() -> int:
         "languages": {lang: {"files": n, "fidelity": fidelity.get(lang, "?")}
                       for lang, n in sorted(per_language.items())},
         "shallow": sorted(shallow),
+        # Repositories whose dates are mtimes because git could not answer in
+        # time. Distinct from `shallow`: there the dates are real and uniform,
+        # here they are not commit dates at all.
+        "dates_unavailable": dates_notes,
         "skipped": skipped_languages,
         "not_covered": dict(sorted(uncovered.items(), key=lambda kv: -kv[1])),
         "built": time.strftime("%Y-%m-%d %H:%M:%S"),

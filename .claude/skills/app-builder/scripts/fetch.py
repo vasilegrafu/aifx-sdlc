@@ -46,6 +46,33 @@ def head_of(path) -> str:
     return out.split()[0][:12] if code == 0 and out else ""
 
 
+def is_shallow(path) -> bool:
+    code, out = _git("rev-parse", "--is-shallow-repository", cwd=path, timeout=60)
+    return code == 0 and out.strip() == "true"
+
+
+def deepen(ref) -> str:
+    """Give a shallow clone its history back, if it has none.
+
+    `git pull` does *not* do this: pulling a `--depth 1` clone leaves it at
+    depth 1 forever, so a corpus cloned shallowly once stays shallow through
+    every update and nothing says so. The dates then look like data and are
+    really one clone timestamp repeated -- which is the signal `practice` and
+    `AGEING` exist to read, so it is worth a network round trip to repair.
+
+    Blobs stay filtered: history is what is missing, not file contents.
+    """
+    if not is_shallow(ref["path"]):
+        return ""
+    code, out = _git("fetch", "--unshallow", "--filter=blob:none", "--quiet",
+                     cwd=ref["path"])
+    if code != 0:
+        # Not fatal. A shallow reference still answers every question except
+        # *when*, and the index records it as shallow so nothing claims more.
+        return f"  still shallow: {out.splitlines()[-1] if out else 'fetch failed'}"
+    return "  unshallowed"
+
+
 def clone(ref) -> tuple[bool, str]:
     target = ref["path"]
     code, out = _git("clone", "--filter=blob:none", "--quiet",
@@ -67,10 +94,11 @@ def update(ref) -> tuple[bool, str]:
     # which is exactly how this corpus was migrated -- still points at whatever
     # origin it was cloned with, and that may not be what config now says.
     _git("remote", "set-url", "origin", ref["repo"], cwd=target)
+    deepened = deepen(ref)
     code, out = _git("pull", "--quiet", "--ff-only", cwd=target)
     if code != 0:
         return False, out.splitlines()[-1] if out else "pull failed"
-    return True, head_of(target)
+    return True, head_of(target) + deepened
 
 
 def main(argv=None) -> int:
@@ -80,6 +108,10 @@ def main(argv=None) -> int:
                     help="only these references; repeatable")
     ap.add_argument("--update", action="store_true",
                     help="pull references that are already present")
+    ap.add_argument("--deepen", action="store_true",
+                    help="give shallow clones their history back and nothing "
+                         "else. A shallow reference dates every file to the "
+                         "clone, which is what AGEING and `practice` read")
     ap.add_argument("--prune", action="store_true",
                     help="delete directories in the corpus that config no longer names")
     ap.add_argument("--dry-run", action="store_true",
@@ -110,6 +142,18 @@ def main(argv=None) -> int:
     for ref in refs:
         name = ref["name"]
         if ref["path"].is_dir():
+            if args.deepen:
+                if not is_shallow(ref["path"]):
+                    continue
+                if args.dry_run:
+                    print(f"  would deepen {name}")
+                    continue
+                note = deepen(ref)
+                ok = "still shallow" not in note
+                print(f"  {'deepened' if ok else 'FAILED  '}  {name:<22}"
+                      f" {head_of(ref['path'])}{note}")
+                failures += 0 if ok else 1
+                continue
             if not args.update:
                 print(f"  have      {name:<22} {head_of(ref['path'])}")
                 continue

@@ -65,9 +65,32 @@ def is_entry_point(path: Path) -> bool:
     return False
 
 
-def importers_of(root: Path, targets: set[str], exclude: set[Path]) -> dict[str, list[str]]:
-    """Which files import each target name. Scans the project, not the world."""
+def importers_of(root: Path, targets: set[str], modules: dict[str, list[str]],
+                 exclude: set[Path]) -> dict[str, list[str]]:
+    """Which files import each target name, or the module that defines it.
+
+    Both forms wire a definition in: `from database.models import Student`
+    names it, and `import database.models.student` runs the module, which is
+    all registration needs. Only the first was seen for a long time, so a model
+    imported by module was reported UNWIRED -- and a false alarm here trains
+    the reader to ignore the one check that exists to catch a real one.
+
+    Module specs are matched by dotted tail, because a relative import says
+    `models.student`, not `database.models.student`, and resolving packages
+    properly is an interpreter's job, not a wiring check's.
+    """
     found: dict[str, list[str]] = {t: [] for t in targets}
+
+    def credit_module(spec: str, relpath: str) -> None:
+        parts = spec.lstrip(".").split(".")
+        if parts == [""]:
+            return
+        for mod, names in modules.items():
+            if mod.split(".")[-len(parts):] == parts:
+                for name in names:
+                    if relpath not in found[name]:
+                        found[name].append(relpath)
+
     for path in iter_py_files(root, max_bytes=2_000_000):
         if path.resolve() in exclude:
             continue
@@ -75,14 +98,24 @@ def importers_of(root: Path, targets: set[str], exclude: set[Path]) -> dict[str,
             tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
         except (SyntaxError, ValueError):
             continue
+        relpath = rel(path, root)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom):
+                mod = "." * (node.level or 0) + (node.module or "")
                 for a in node.names:
                     if a.name in found:
-                        found[a.name].append(rel(path, root))
+                        found[a.name].append(relpath)
                     elif a.name == "*":
                         # a star import re-exports whatever the module defines
-                        found.setdefault("*", []).append(rel(path, root))
+                        found.setdefault("*", []).append(relpath)
+                    else:
+                        # `from database.models import student` -- the name is
+                        # the module, and importing it runs it
+                        credit_module(f"{mod}.{a.name}" if mod else a.name,
+                                      relpath)
+            elif isinstance(node, ast.Import):
+                for a in node.names:
+                    credit_module(a.name, relpath)
     return found
 
 
@@ -162,8 +195,16 @@ def main() -> int:
     else:
         for f in files:
             mod = dotted(f, root)
-            proc = subprocess.run([python, "-c", f"import {mod}"], cwd=root, env=env,
-                                  capture_output=True, text=True, timeout=args.timeout)
+            try:
+                proc = subprocess.run([python, "-c", f"import {mod}"], cwd=root,
+                                      env=env, capture_output=True, text=True,
+                                      timeout=args.timeout)
+            except subprocess.TimeoutExpired:
+                failures += 1
+                print(f"  FAIL  {mod}\n        no result in {args.timeout}s --"
+                      " something at import time blocks. A missing --env is the"
+                      " usual cause; --timeout raises the wait.")
+                continue
             if proc.returncode == 0:
                 print(f"  ok    {mod}")
             else:
@@ -187,7 +228,11 @@ def main() -> int:
             else:
                 targets[name] = f
 
-    found = importers_of(root, set(targets), exclude={f.resolve() for f in files})
+    by_module: dict[str, list[str]] = {}
+    for name, src in targets.items():
+        by_module.setdefault(dotted(src, root), []).append(name)
+    found = importers_of(root, set(targets), by_module,
+                         exclude={f.resolve() for f in files})
     for name, src in sorted(targets.items()):
         by = found.get(name, [])
         if by:

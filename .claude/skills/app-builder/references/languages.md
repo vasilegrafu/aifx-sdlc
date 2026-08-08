@@ -169,7 +169,18 @@ those would invent a type that does not exist.
 never registers, and that is the failure this skill exists to catch. In C# an
 unreferenced class compiles perfectly. The same disease appears as a service
 never added to the container or a controller never discovered — so the check
-moves from the compiler to a query against the composition root.
+moves from the compiler to a query against the composition root:
+
+```bash
+scripts/query.py calls --on services   # or --on builder, --on app
+```
+
+That works for the same reason `calls --on <TypeName>` does not: a field or
+static receiver keeps its name at the call site, and `services` is one.
+Measured on eShopOnWeb it reports `AddScoped` 21 and `AddDbContext` 4, naming
+`ServicesConfiguration.cs` and `Dependencies.cs` — the files a new service has
+to be added to, which is what `imports --chain` answers in Python. The recipe
+is in `MANUAL.md`.
 
 **The adapter is built, not shipped.** `dotnet build -c Release` runs once on
 first use and the assembly is cached. If you are reading a C# codebase the SDK

@@ -108,7 +108,7 @@ checked something the index cannot see.
 | **Authentication** | **Yes** — `shape --kind func` and read `DECORATORS` | Measured: `solution.school/webapi` shows `app.post 71%`, `route_wrapper 71%`, and no auth decorator at all. An API with no authentication is a decision; it should be one someone made. |
 | **Configuration** | **Partly** — config *modules* are indexed; `.json`/`.env` values are not | Where configuration is read decides whether the app runs from anywhere. See `generating.md` on working from one directory. |
 | **Test strategy** | **Partly** — `proof` finds test config, test directories and the interpreter | It cannot tell you whether the tests are any good, only that they exist and how they are run. |
-| **Dependency management** | **No** — 0 manifests indexed; `requirements.txt`, `pyproject.toml`, `package.json` are not source | Every new dependency an option implies must be named in the option itself. Nothing will catch it later. |
+| **Dependency management** | **Yes** — manifests are indexed; `deps` lists them, and `deps --on NAME` says who declares a package | An option that adds a dependency names it, and `deps --on` answers whether the exemplars or the target already declare it. References do not count as paid for, and are read only with `--references`. |
 | **Build / packaging** | **No** | — |
 | **Deployment, CI/CD** | **No** — 0 files; `.github/workflows`, Dockerfiles and YAML are not indexed at all | Generated code that no pipeline builds is not deployed, and nothing in this skill will notice. |
 | **Observability** | **No** — metrics and tracing are configuration, not structure | Distinct from logging: logs say what happened once, metrics say how often. Raise only if scale or operability came up in the brief. |

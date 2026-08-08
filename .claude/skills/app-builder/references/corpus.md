@@ -78,6 +78,12 @@ move a verdict is exactly the one to measure before adding, not after.
 - **Disposable.** Delete any of it and run `fetch.py`. Nothing depends on a
   particular commit — though `meta.json` records which one was measured, so a
   verdict can be traced afterwards.
+- **Deep, not shallow.** A `--depth 1` clone dates every file to the moment it
+  was fetched, which is precisely the signal `practice` and `AGEING` read. Nine
+  of these were shallow for a long time and nothing said so, because `fetch.py
+  --update` pulls and **a pull leaves a shallow clone shallow**. `fetch.py
+  --deepen` repairs them and `--update` now does it in passing; `meta` reports
+  what is still shallow, and `practice` marks those rows `*`.
 - **Never promoted.** Moving a reference into `exemplar_corpus` to "get more
   signal" is the failure, not the fix: it would put an average of the internet
   where the exemplar's contract belongs.

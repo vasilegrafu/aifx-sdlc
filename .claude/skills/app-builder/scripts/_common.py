@@ -183,7 +183,8 @@ def configured_references() -> list[dict]:
     letting them into a contract computation replaces the convention being
     reproduced with an average of the internet -- the same failure as averaging
     two exemplars, at nine times the scale. `read_index` filters them out
-    everywhere; `practice` opts back in, and is the only thing that does.
+    everywhere; `practice` opts back in always, and `deps` only when asked to
+    with `--references`.
     """
     cfg = load_config()
     # `references` was the earlier spelling, kept working on purpose: renaming a
@@ -252,6 +253,21 @@ def solution_dir() -> Path:
     """Where generated applications are built. Named in config.json; `solution` if absent."""
     return configured_solution()["path"]
 
+
+# What shape the records are in. Stamped on every meta.json and checked when a
+# query reads one.
+#
+# There is already one migration in the codebase handled by *sniffing*: calls
+# used to be bare strings and are now `[name, line]`, and `call_sites()` tells
+# them apart by looking. That works exactly once and only because the two
+# shapes are distinguishable -- the next change might be a field that means
+# something different rather than one that looks different, and there would be
+# nothing to sniff. A number is what makes the next migration a check.
+#
+# Bump when a change makes records written by an older `index.py` wrong to read
+# rather than merely thinner. Adding a field is not a bump; changing what an
+# existing field means is.
+INDEX_SCHEMA = 1
 
 INDEX_DIR = ".indexes"
 
@@ -394,6 +410,28 @@ def indexed_roles() -> dict[str, str]:
     return out
 
 
+def index_schema_warning() -> str | None:
+    """Whether this index was written by an `index.py` that disagrees with us.
+
+    Silence when it agrees, or when the index predates the field entirely --
+    schema 1 is what everything written before the stamp existed effectively
+    is, and treating "no answer" as a mismatch would report every existing
+    index as broken on the day this shipped.
+    """
+    found = set()
+    for shard in indexed_repositories():
+        try:
+            meta = json.loads(shard["meta"].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        found.add(meta.get("schema", INDEX_SCHEMA))
+    stale = sorted(v for v in found if v != INDEX_SCHEMA)
+    if not stale:
+        return None
+    return (f"index schema {', '.join(str(v) for v in stale)}, but these "
+            f"scripts read schema {INDEX_SCHEMA}. Rebuild: scripts/index.py")
+
+
 def read_index(include_references: bool = False):
     """Yield index records. Streams -- the index can be larger than memory.
 
@@ -401,7 +439,8 @@ def read_index(include_references: bool = False):
     mechanism behind `configured_references`: a reference is evidence about the
     wider world, and the moment it reaches a command that computes what is
     ALWAYS true, the contract being reproduced is no longer the exemplar's.
-    Opting in is one keyword and `practice` is the only caller that uses it.
+    Opting in is one keyword; `practice` always does, and `deps` does only
+    when passed `--references`.
 
     A held-out repository is not opened, not filtered -- it is in a directory
     this call never walks into.

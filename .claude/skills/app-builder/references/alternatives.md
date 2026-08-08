@@ -46,6 +46,11 @@ Read the dates in the row, not only the counts.
 **The corpus is small and specific, and a thin one lies.** A dozen codebases,
 chosen for other reasons. Enough to tell you a choice is contested; not a survey.
 
+`practice` now counts this for you rather than asking you to remember it: a
+`by codebase` line sits under the module count, and `SPLIT` appears when the two
+disagree. Read `SPLIT` as *the corpus does not settle this* — not as licence to
+quote whichever number suits the proposal.
+
 This is not a caveat, it is a thing that happened. React server state, asked
 twice, with nothing changed but the corpus:
 

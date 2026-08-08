@@ -450,12 +450,29 @@ def _module(repo, path, imports, when):
                                        for m in imports]}
 
 
-def _class(repo, path, name, when):
+def _func(repo, path, name, when, invokes=(), params=()):
+    """A module-level function record -- a component, a hook, a handler.
+
+    Its conventions live in what it *calls*, which is why `invokes` is the
+    interesting field and why a layer of these has a contract at all.
+    """
+    return {"k": "func", "lang": "typescript", "repo": repo, "path": path,
+            "mtime": when, "commit": when, "name": name, "decorators": [],
+            "params": list(params), "returns": None, "line": 1, "end": 9,
+            "async": False, "calls": [],
+            "invokes": [[i, 2] for i in invokes]}
+
+
+def _class(repo, path, name, when, ann="int", methods=(), bases=("Base",)):
     return {"k": "class", "lang": "python", "repo": repo, "path": path,
-            "mtime": when, "commit": when, "name": name, "bases": ["Base"],
+            "mtime": when, "commit": when, "name": name, "bases": list(bases),
             "keywords": [], "decorators": [], "line": 1, "end": 9,
-            "attrs": [{"name": "id", "ann": "int", "call": "", "args": [], "kw": []}],
-            "assigns": [], "methods": [], "nested": []}
+            "attrs": [{"name": "id", "ann": ann, "call": "", "args": [], "kw": []}],
+            "assigns": [],
+            "methods": [{"name": m, "decorators": [], "params": [],
+                         "returns": None, "line": 2, "end": 3, "async": False,
+                         "calls": [], "invokes": []} for m in methods],
+            "nested": []}
 
 
 def build_query_fixture() -> Path:
@@ -489,14 +506,34 @@ def build_query_fixture() -> Path:
     two_years = now - 2 * 365 * 24 * 3600
 
     records = [
-        # exemplar: uses both, but its oldlib modules are ancient
+        # exemplar: uses both, but its oldlib modules are ancient -- and it
+        # genuinely favours oldlib rather than tying, so `DISAGREES` below is a
+        # measurement and not an artefact of which token was typed first.
         _module("ex", "app/a.py", ["oldlib"], two_years),
         _module("ex", "app/b.py", ["oldlib"], two_years),
+        _module("ex", "app/f.py", ["oldlib"], two_years),
         _module("ex", "app/c.py", ["newlib"], now),
         # deep import, and a near-miss that must not be claimed by it
         _module("ex", "app/d.py", ["newlib/sub/thing"], now),
         _module("ex", "app/e.py", ["newlib-other"], now),
-        _class("ex", "app/models/One.py", "One", now),
+        # exemplar models: `touch` is a two-of-three convention and `id` has
+        # one minority form, so `questions` gets a candidate the target
+        # settles (attrdetail-id) and one it leaves live (method-touch).
+        _class("ex", "app/models/One.py", "One", now, ann="UUID",
+               methods=("touch",)),
+        _class("ex", "app/models/Sibling.py", "Sibling", now, ann="UUID",
+               methods=("touch",)),
+        _class("ex", "app/models/Third.py", "Third", now, ann="str"),
+        # A near-miss base and a generic one. `--base Base` must find the
+        # generic and must NOT find `BaseModel`, which substring matching
+        # blended into the same family for a long time.
+        #
+        # Deliberately outside `app/models/`: these exist to test matching, and
+        # putting them in the layer the other fixtures measure changed its
+        # ratios and silently retired an assertion elsewhere.
+        _class("ex", "app/other/Generic.py", "Generic", now,
+               bases=("Base[Student]",)),
+        _class("ex", "app/other/Decoy.py", "Decoy", now, bases=("BaseModel",)),
         # reference: unanimously the new way, and far larger
         _module("ref", "src/x.py", ["newlib"], now),
         _module("ref", "src/y.py", ["newlib"], now),
@@ -504,14 +541,66 @@ def build_query_fixture() -> Path:
         _class("ref", "src/models/Ref1.py", "Ref1", now),
         _class("ref", "src/models/Ref2.py", "Ref2", now),
         _class("ref", "src/models/Ref3.py", "Ref3", now),
-        # target
-        _class("tgt", "app/models/Two.py", "Two", now),
-        # manifests
+        # A second reference, going the other way. One codebase each is a tie by
+        # codebase while the module count still favours newlib 3 to 1 -- which
+        # is the SPLIT case, and the case where naming a winner would be an
+        # artefact of argument order rather than a measurement.
+        _module("ref2", "src/legacy.py", ["oldlib"], now),
+        # A registration chain, and a decoy for it. Both repositories own a
+        # directory called `models`, which is entirely ordinary -- and the hop
+        # after a barrel is a bare directory name, so an unscoped chain claims
+        # the other codebase's file as part of this one's wiring.
+        _module("ex", "app/models/__init__.py", ["Widget"], now),
+        _module("ex", "app/registry.py", ["models"], now),
+        _module("tgt", "app/wiring.py", ["models"], now),
+        # target: unanimous on the id form, split on `touch`
+        _class("tgt", "app/models/Two.py", "Two", now, ann="UUID",
+               methods=("touch",)),
+        _class("tgt", "app/models/Four.py", "Four", now, ann="UUID"),
+        # A function layer on both sides -- components, whose contract is what
+        # they call. Every source one calls `useConfig` and `useState`; the
+        # generated pair keeps `useState` and drops `useConfig`, which is
+        # exactly the silent departure `conform` exists to name and which it
+        # could not see at all while it read classes only.
+        _module("ex", "ui/a.tsx", [], now),
+        _module("ex", "ui/b.tsx", [], now),
+        _func("ex", "ui/a.tsx", "Alpha", now, invokes=("useState", "useConfig")),
+        _func("ex", "ui/b.tsx", "Beta", now, invokes=("useState", "useConfig")),
+        _module("tgt", "ui/c.tsx", [], now),
+        _module("tgt", "ui/d.tsx", [], now),
+        _func("tgt", "ui/c.tsx", "Gamma", now, invokes=("useState", "useToast")),
+        _func("tgt", "ui/d.tsx", "Delta", now, invokes=("useState", "useToast")),
+        # Two functions with nothing whatever in common, so their intersection
+        # is empty and there is no contract to check. `conform` used to call
+        # that "the target keeps everything the source contracts", which is
+        # true, worthless, and indistinguishable from a clean pass.
+        _module("ex", "misc/p.tsx", [], now),
+        _module("ex", "misc/q.tsx", [], now),
+        _func("ex", "misc/p.tsx", "P", now, invokes=("alpha",)),
+        _func("ex", "misc/q.tsx", "Q", now, invokes=("beta",)),
+        # The called-but-not-defined check, which is the thing this skill found
+        # four dead call sites with and which nothing tested. `Ctrl` defines
+        # `select` and not `where`; a caller uses both. That one dead line
+        # imports cleanly, passes every linter, and raises only when it runs.
+        _class("ex", "lib/ctrl.py", "Ctrl", now, methods=("select",)),
+        {"k": "func", "lang": "python", "repo": "ex", "path": "app/uses.py",
+         "mtime": now, "commit": now, "name": "run", "decorators": [],
+         "params": [], "returns": None, "line": 1, "end": 9, "async": False,
+         "calls": [["Ctrl.select", 3], ["Ctrl.where", 4]],
+         "invokes": [["helper", 5]]},
+        # Defined, and nothing calls or invokes it -- the other silent failure.
+        _func("ex", "app/dead.py", "orphaned_helper", now),
+        # manifests: one the exemplar declares, one only a reference declares.
+        # The second must stay out of `deps` unless --references asks.
         {"k": "manifest", "repo": "ex", "path": "package.json", "mtime": now,
          "commit": 0, "ecosystem": "npm", "deps": {"leftpad": "^1.0.0"},
          "dev_deps": {}, "scripts": {"build": "tsc"}},
+        {"k": "manifest", "repo": "ref", "path": "package.json", "mtime": now,
+         "commit": 0, "ecosystem": "npm", "deps": {"refpkg": "^2.0.0"},
+         "dev_deps": {}, "scripts": {}},
     ]
-    roles = {"ex": "exemplar", "ref": "reference", "tgt": "target"}
+    roles = {"ex": "exemplar", "ref": "reference", "ref2": "reference",
+             "tgt": "target"}
     for repo, role in roles.items():
         mine = [r for r in records if r["repo"] == repo]
         index_path(role, repo).mkdir(parents=True, exist_ok=True)
@@ -522,8 +611,14 @@ def build_query_fixture() -> Path:
             "files": sum(1 for r in mine if r["k"] == "module"),
             "classes": sum(1 for r in mine if r["k"] == "class"),
         }) + "\n", encoding="utf-8")
+    # `ref` is recorded shallow, and `ex` deliberately is not. A shallow row's
+    # dates are the moment it was fetched, and `practice` presented them as
+    # last-touched signals for a long time -- while the manual told the reader
+    # to weigh exactly those dates. Marked here so the marking cannot quietly
+    # go away, and kept off `ex` because its row is asserted positionally.
     rollup_path().write_text(json.dumps({
-        "repos": sorted(roles), "target": "tgt", "roles": roles, "shallow": [],
+        "repos": sorted(roles), "target": "tgt", "roles": roles,
+        "shallow": ["ref"],
     }) + "\n", encoding="utf-8")
     return index_root()
 
@@ -545,6 +640,60 @@ def run_query(*argv) -> str:
         if exc.code not in (0, None):
             return f"{buf.getvalue()}\n<command failed: {' '.join(argv)}>"
     return buf.getvalue()
+
+
+def check_staleness() -> list[str]:
+    """An index older than the code it describes must say so.
+
+    The skill documents staleness as the expensive failure and then relies on
+    the reader to remember: a contract computed from last week's index is
+    wrong in the worst way, because it is plausible and specific and describes
+    code that has since moved. Worth a test of its own since the detection is
+    the only thing standing between that and silence.
+    """
+    import json
+    import time
+
+    import query
+    from _common import index_meta
+
+    bad = []
+    tmp = Path(tempfile.mkdtemp(prefix="ab-stale-"))
+    try:
+        (tmp / "app").mkdir()
+        source = tmp / "app" / "thing.py"
+        source.write_text("class Thing: pass\n", encoding="utf-8")
+
+        # A shard built *after* the source is current; one built before is not.
+        for built, expect_stale in ((time.time() + 60, False),
+                                    (time.time() - 3600, True)):
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(built))
+            record = {"name": "probe", "path": tmp, "exists": True,
+                      "exclude": (), "include": (), "is_target": False}
+            meta = index_meta("exemplar", "probe")
+            meta.parent.mkdir(parents=True, exist_ok=True)
+            meta.write_text(json.dumps({"repo": "probe", "built": stamp}),
+                            encoding="utf-8")
+            # Exercised through the real entry point, with only the repository
+            # list stubbed: what matters is what a query would actually print.
+            query._STALE_CACHE = None
+            original = query.configured_repositories
+            query.configured_repositories = lambda: [record]
+            try:
+                stale = query.stale_repositories()
+            finally:
+                query.configured_repositories = original
+                query._STALE_CACHE = None
+            if expect_stale and "probe" not in stale:
+                bad.append("staleness: a source newer than its shard was not "
+                           "reported -- the index can silently describe code "
+                           "that has moved")
+            if not expect_stale and "probe" in stale:
+                bad.append("staleness: an up-to-date index was reported stale, "
+                           "which trains the reader to ignore the warning")
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return bad
 
 
 def check_corpus_guard() -> list[str]:
@@ -610,6 +759,8 @@ def check_queries() -> list[str]:
     whole skill exists to prevent -- and it is one keyword argument away at all
     times.
     """
+    import json as _json
+
     bad = []
 
     # A repository's role is the directory it sits in, and this is the proof:
@@ -660,6 +811,29 @@ def check_queries() -> list[str]:
     out = run_query("practice", "--on", "oldlib", "--versus", "newlib")
     if "ref" not in out:
         bad.append("practice: did not read the reference corpus, which is its whole job")
+    # A shallow row's dates are the date it was fetched. Presenting them as
+    # last-touched, unmarked, is the failure -- the counts stay usable.
+    if "ref *" not in out:
+        bad.append(f"practice: a shallow repository's dates were shown as "
+                   f"history, unmarked:\n{out}")
+    if "shallow clone -- ref" not in out:
+        bad.append(f"practice: nothing explained the mark:\n{out}")
+    # Counted by codebase as well as by module, because one large repository
+    # owns a module count outright.
+    if "by codebase" not in out:
+        bad.append(f"practice: no per-codebase verdict:\n{out}")
+    # A tie is a result. `max()` breaks one by argument order, which reads as a
+    # finding and is really an artefact of what the user typed first -- so a
+    # tied count must say so rather than crowning whichever token came first.
+    # Two reference codebases, one apiece, is exactly that.
+    if "by codebase      tied" not in out:
+        bad.append(f"practice: one codebase each was reported as a winner "
+                   f"rather than a tie:\n{out}")
+    # And the two ways of counting disagree, which is the whole reason the
+    # second one exists.
+    if "SPLIT" not in out:
+        bad.append(f"practice: module count and codebase count disagree and it "
+                   f"was not said:\n{out}")
     if "corpus favours   newlib" not in out:
         bad.append(f"practice: wrong corpus verdict:\n{out}")
     if "DISAGREES" not in out:
@@ -685,6 +859,273 @@ def check_queries() -> list[str]:
     out = run_query("deps", "--repo", "tgt")
     if "declares no dependencies" not in out:
         bad.append(f"deps: a repo with no manifest should say so, not blame the index:\n{out}")
+
+    # References are not who pays. A package only a reference declares must
+    # read as "adding it" by default, and be visible on request.
+    out = run_query("deps", "--on", "refpkg")
+    if "nothing declares it" not in out:
+        bad.append("deps: a package only a reference declares reached the "
+                   f"default scope -- 'already paid for' would lie:\n{out}")
+    out = run_query("deps", "--on", "refpkg", "--references")
+    if "^2.0.0" not in out:
+        bad.append(f"deps --references: the reference's manifest was not read:\n{out}")
+
+    # One candidate the target settles, one it leaves live. The settled one is
+    # read back exactly once -- it printed twice for a while, which reads as
+    # twice the diligence and is the same information.
+    out = run_query("questions", "--path", "*/models/*",
+                    "--target-path", "app/models/*", "--target-repo", "tgt")
+    if out.count("answered by the code already") != 1:
+        bad.append("questions: the answered-by-code block must print exactly "
+                   f"once:\n{out}")
+    if "attrdetail-id" not in out:
+        bad.append(f"questions: a form the target settled was not read back:\n{out}")
+    if "method-touch" not in out:
+        bad.append(f"questions: the live fork was not asked:\n{out}")
+
+    # `exemplars` says "copy the structure of these", so the generated target
+    # must not be among them unless asked for. Ranking your own output most
+    # typical is how one mistake becomes the convention.
+    out = run_query("exemplars", "--path", "app/models/*")
+    if "tgt/" in out:
+        bad.append(f"exemplars: the generated target was offered as a model "
+                   f"to copy:\n{out}")
+    if "ex/" not in out:
+        bad.append(f"exemplars: the exemplar's own files were held out too:\n{out}")
+    out = run_query("exemplars", "--path", "app/models/*", "--include-target")
+    if "tgt/" not in out:
+        bad.append(f"exemplars --include-target: the target stayed hidden:\n{out}")
+    out = run_query("exemplars", "--path", "app/models/*", "--repo", "tgt")
+    if "tgt/" not in out:
+        bad.append(f"exemplars --repo tgt: naming the target explicitly was "
+                   f"overruled:\n{out}")
+
+    # Exact on the root, not a substring: `Base` is `Base` and `Base[Student]`,
+    # and is not `BaseModel`.
+    out = run_query("find", "--base", "Base")
+    if "Generic" not in out:
+        bad.append(f"--base: a generic base `Base[Student]` was not matched:\n{out}")
+    if "Decoy" in out:
+        bad.append(f"--base: `Base` matched `BaseModel` -- substring matching "
+                   f"blends two families into one:\n{out}")
+    out = run_query("find", "--base", "Base*")
+    if "Decoy" not in out:
+        bad.append(f"--base: an explicit wildcard did not match:\n{out}")
+
+    # The called-but-not-defined check. This is the one that found four live
+    # call sites for a method that never existed, and it had no test at all --
+    # so a regression in it would have been invisible until it silently stopped
+    # finding anything, which looks exactly like a clean codebase.
+    out = run_query("calls", "--on", "Ctrl")
+    if "where" not in out or "MISSING" not in out:
+        bad.append(f"calls: a method called on Ctrl that Ctrl does not define "
+                   f"was not reported:\n{out}")
+    if "ex/app/uses.py:4" not in out:
+        bad.append(f"calls: the dead call site was not located -- the line is "
+                   f"the difference between a pointer and a search:\n{out}")
+    if "ok       select" not in out:
+        bad.append(f"calls: a method that does exist was not confirmed:\n{out}")
+
+    # A name invoked directly has no member list to check against, and saying
+    # "nothing calls anything on it" would read as dead code.
+    out = run_query("calls", "--on", "helper")
+    if "invoked directly" not in out:
+        bad.append(f"calls: a directly-invoked name was not recognised as one:\n{out}")
+
+    # Defined and never reached. Worth reporting, and worth the caveat it
+    # prints: absence of a caller in this index is not absence of a caller.
+    out = run_query("calls", "--on", "orphaned_helper")
+    if "nothing in this index calls or invokes it" not in out:
+        bad.append(f"calls: a definition nothing reaches was not reported:\n{out}")
+    if "absence of a caller" not in out:
+        bad.append(f"calls: reported dead code without the caveat that a public "
+                   f"symbol is called from outside the index:\n{out}")
+
+    # A schema stamp is only worth having if a disagreement is noticed. Both
+    # directions matter: an index predating the field must not be reported as
+    # broken -- that would fire on every existing index the day it shipped --
+    # and one written by a different `index.py` must be.
+    from _common import INDEX_SCHEMA, index_meta, index_schema_warning
+
+    if index_schema_warning() is not None:
+        bad.append("schema: an index with no stamp was reported as a mismatch; "
+                   "unstamped means 'written before the field existed'")
+    meta_file = index_meta("exemplar", "ex")
+    original = meta_file.read_text(encoding="utf-8")
+    try:
+        claim = _json.loads(original)
+        claim["schema"] = INDEX_SCHEMA + 99
+        meta_file.write_text(_json.dumps(claim), encoding="utf-8")
+        said = index_schema_warning()
+        if not said or str(INDEX_SCHEMA + 99) not in said:
+            bad.append(f"schema: an index written by a different index.py was "
+                       f"not reported: {said!r}")
+    finally:
+        meta_file.write_text(original, encoding="utf-8")
+
+    # Why a set has no dates, said correctly. Three causes reach the same
+    # symptom -- not in git, indexed with --no-git, and a history git could not
+    # read in time -- and the third was reported as the first, which sends the
+    # reader to fix something that is not wrong. Asserted directly because it
+    # only reproduces on a repository large enough to time out.
+    import query as _query
+
+    undated = [{"repo": "big", "commit": 0, "mtime": 1}]
+    said = _query.date_provenance(undated, frozenset(),
+                                  {"big": "`git log` did not finish in 900s"})
+    if not said or "did not finish" not in said:
+        bad.append(f"date_provenance: a recorded reason was discarded: {said!r}")
+    if said and "nothing here is in git" in said:
+        bad.append(f"date_provenance: blamed git for a repository that is in "
+                   f"git: {said!r}")
+    said = _query.date_provenance(undated, frozenset(), {})
+    if not said or "nothing here is in git" not in said:
+        bad.append(f"date_provenance: lost the ordinary no-git message: {said!r}")
+
+    # A function layer has a contract too, and until `--kind func` existed this
+    # command could not see one -- every React, hook and handler layer the skill
+    # can generate had no rung-8 check at all.
+    out = run_query("conform", "--kind", "func", "--repo", "ex",
+                    "--path", "ui/*", "--target-repo", "tgt",
+                    "--target-path", "ui/*")
+    if "useConfig" not in out:
+        bad.append(f"conform --kind func: a call every source function makes "
+                   f"and no generated one makes was not reported:\n{out}")
+    if "DROPPED (0)" in out:
+        bad.append(f"conform --kind func: reported nothing dropped when a "
+                   f"contract call was dropped:\n{out}")
+    if "useToast" not in out:
+        bad.append(f"conform --kind func: a call universal in the target and "
+                   f"absent from the source was not reported as ADDED:\n{out}")
+    # The default is still classes, and asking for the wrong one says so
+    # instead of reporting an empty layer.
+    out = run_query("conform", "--kind", "class", "--repo", "ex",
+                    "--path", "ui/*", "--target-repo", "tgt",
+                    "--target-path", "ui/*")
+    if "--kind func" not in out:
+        bad.append(f"conform: a filter matching only functions did not point "
+                   f"at --kind func:\n{out}")
+    # An empty intersection is not a pass. "The target keeps everything the
+    # source contracts" is true and worthless when the source contracts
+    # nothing, and it reads exactly like a clean result.
+    out = run_query("conform", "--kind", "func", "--repo", "ex",
+                    "--path", "misc/*", "--target-repo", "tgt",
+                    "--target-path", "ui/*")
+    if "NOTHING TO CHECK" not in out:
+        bad.append(f"conform: a source with no common feature was checked as "
+                   f"though it had a contract:\n{out}")
+    if "keeps everything the source contracts" in out:
+        bad.append(f"conform: a vacuous check was worded as a clean pass:\n{out}")
+    # ...and a genuinely conforming target still reads as one.
+    out = run_query("conform", "--repo", "ex", "--path", "app/models/*",
+                    "--target-repo", "tgt", "--target-path", "app/models/*")
+    if "keeps everything the source contracts" not in out:
+        bad.append(f"conform: a real clean pass stopped saying so:\n{out}")
+
+    # `--json` is a contract with a machine, so it is worth pinning as one:
+    # parseable, nothing but JSON on stdout, and the one field a caller cannot
+    # reconstruct. An empty `dropped` means "nothing was broken" or "nothing
+    # was checked" depending on `contract_empty`, and a gate that confuses them
+    # reports a green build for a check that never ran.
+    raw = run_query("conform", "--kind", "func", "--repo", "ex",
+                    "--path", "misc/*", "--target-repo", "tgt",
+                    "--target-path", "ui/*", "--json")
+    try:
+        payload = _json.loads(raw)
+    except ValueError:
+        payload = None
+        bad.append(f"conform --json: stdout was not parseable JSON:\n{raw}")
+    if payload is not None:
+        if not payload.get("contract_empty"):
+            bad.append("conform --json: a vacuous check reported "
+                       "contract_empty false -- a gate would read it as a pass")
+        if payload.get("dropped"):
+            bad.append(f"conform --json: dropped rows from an empty contract: "
+                       f"{payload['dropped']}")
+
+    raw = run_query("conform", "--kind", "func", "--repo", "ex",
+                    "--path", "ui/*", "--target-repo", "tgt",
+                    "--target-path", "ui/*", "--json")
+    try:
+        payload = _json.loads(raw)
+    except ValueError:
+        payload = None
+        bad.append(f"conform --json: stdout was not parseable JSON:\n{raw}")
+    if payload is not None:
+        if payload.get("contract_empty"):
+            bad.append("conform --json: a real contract reported as empty")
+        items = {d["item"] for d in payload.get("dropped") or ()}
+        if "useConfig" not in items:
+            bad.append(f"conform --json: the dropped contract call is missing "
+                       f"from the machine-readable result: {sorted(items)}")
+
+    raw = run_query("questions", "--path", "app/models/*",
+                    "--target-path", "app/models/*", "--target-repo", "tgt",
+                    "--json")
+    try:
+        payload = _json.loads(raw)
+    except ValueError:
+        payload = None
+        bad.append(f"questions --json: stdout was not parseable JSON:\n{raw}")
+    if payload is not None and not payload.get("settled_by_code"):
+        bad.append("questions --json: what the target already answers was not "
+                   "reported, so a consumer would ask it again")
+
+    # A filter matching nothing is a result too, and it has to be parseable --
+    # a mistyped path must not reach a gate as prose, and must not read as
+    # "no drops, therefore pass".
+    for cmd, key in ((("conform", "--repo", "ex", "--path", "nowhere/*",
+                       "--target-repo", "tgt", "--target-path", "ui/*",
+                       "--json"), "contract_empty"),
+                     (("questions", "--path", "nowhere/*", "--json"), None)):
+        raw = run_query(*cmd)
+        try:
+            got = _json.loads(raw)
+        except ValueError:
+            bad.append(f"{cmd[0]} --json: a filter that matched nothing printed "
+                       f"prose to a machine-readable stream:\n{raw}")
+            continue
+        if not got.get("error"):
+            bad.append(f"{cmd[0]} --json: an empty result did not say why")
+        if key and not got.get(key):
+            bad.append(f"{cmd[0]} --json: a typo'd path would read as a clean "
+                       f"pass -- {key} was not set")
+
+    # `--json` has to stay pure JSON when something *wants* to warn. The
+    # staleness notice is printed above the answer for a person, and printing
+    # it above a payload would break every parser precisely when the index is
+    # stale -- the moment a gate most needs a usable answer. Forced, because
+    # the fixture is never stale and so never exercises the branch.
+    import query as _q
+
+    original = _q.stale_repositories
+    _q.stale_repositories = lambda *a, **k: ["ex"]
+    try:
+        for cmd in (("conform", "--kind", "func", "--repo", "ex",
+                     "--path", "ui/*", "--target-repo", "tgt",
+                     "--target-path", "ui/*", "--json"),
+                    ("questions", "--path", "app/models/*", "--json")):
+            raw = run_query(*cmd)
+            try:
+                got = _json.loads(raw)
+            except ValueError:
+                bad.append(f"{cmd[0]} --json: a stale index put text on stdout, "
+                           f"so the payload no longer parses:\n{raw}")
+                continue
+            if got.get("stale") != ["ex"]:
+                bad.append(f"{cmd[0]} --json: staleness was not carried inside "
+                           f"the document: {got.get('stale')!r}")
+    finally:
+        _q.stale_repositories = original
+
+    # A hop after a barrel is a bare directory name. Both repositories own one
+    # called `models`, and only this repository's is part of this chain.
+    out = run_query("imports", "Widget", "--chain")
+    if "ex/app/registry.py" not in out:
+        bad.append(f"imports --chain: the barrel hop was lost:\n{out}")
+    if "tgt/app/wiring.py" in out:
+        bad.append(f"imports --chain: a hop crossed into another repository -- "
+                   f"it names files no edit here can reach:\n{out}")
 
     return bad
 
@@ -734,7 +1175,18 @@ def main() -> int:
             build_query_fixture()
             problems = check_queries()
             print(f"  {'FAIL' if problems else 'ok  '} {'queries':<12} "
-                  f"roles, practice, deps, layers --lang")
+                  f"roles, practice, deps, questions, exemplars, conform,"
+                  f" --base, chain scope")
+            for p in problems:
+                print(f"       {p}")
+            failures += problems
+
+            # Inside the isolated index deliberately: it writes a probe shard,
+            # and outside this block that lands in whatever the user has
+            # actually indexed.
+            problems = check_staleness()
+            print(f"  {'FAIL' if problems else 'ok  '} {'staleness':<12} "
+                  f"an index older than its source says so")
             for p in problems:
                 print(f"       {p}")
             failures += problems

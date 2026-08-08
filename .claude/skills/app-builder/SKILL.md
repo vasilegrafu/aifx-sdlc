@@ -127,7 +127,9 @@ majority, and no amount of querying the exemplar reveals it.
 
 They are held out of `layers`, `shape`, `exemplars`, `questions`, `conform` and
 `DISAGREEMENTS` — by `read_index`, so it is not something a command has to
-remember. Only `practice` opts in.
+remember. Only `practice` opts in unasked; `deps` reads them only when passed
+`--references`, because a package that only a reference declares is not one the
+target has paid for.
 
 That default is not tidiness. Nine reference codebases outnumber one exemplar,
 so a reference reaching a contract computation replaces the convention being
@@ -295,7 +297,13 @@ to this repository's root.
 ```bash
 scripts/query.py config                    # codebases, destination, indexes built
 scripts/query.py meta  # what a built index actually covers
+scripts/query.py meta --verify  # ...and that it holds what it claims to
 ```
+
+Run `--verify` when a count looks wrong or a build was interrupted. It compares
+each shard against its own summary, which is the one corruption that is
+otherwise silent: every query still answers, and every answer is computed from
+a codebase that is not the one on disk.
 
 `config` reports each repository as `ok` or `MISSING` — a configured path that
 does not exist on this machine is the one failure worth catching before anything
@@ -395,6 +403,13 @@ Read the output as separate instructions, not as a report:
 and its frontend have different conventions, and averaging them reports a form
 neither one uses.
 
+**When `shape` says it is blending repositories, believe it and narrow.** The
+percentages are computed across every matched repository at once, and
+`DISAGREEMENTS` only reports the clean splits — always here, never there. A
+40/60 row is the same averaging this whole method forbids, arriving through a
+glob rather than through a decision. Read each side with `--repo` before
+treating any row as contract.
+
 **`--kind func` when the layer's unit is not a class.** A React component, a
 hook, a route handler and most modern JavaScript are functions, and the default
 `--kind class` will report that a directory of forty components contains
@@ -408,6 +423,12 @@ around it.
 ```bash
 scripts/query.py exemplars --path '<dir>/*' [--base <Base>]
 ```
+
+**The generated target is held out of this**, and only of this. Everywhere else
+the target outranks the source — it decides, and `shape`, `conform` and
+`questions` all say so. But this command answers *what should I imitate*, and
+imitating your own last pass is how a mistake made once becomes the convention.
+`--include-target` overrides it when you genuinely want to see what you wrote.
 
 Read the most typical file **in full** — it is what you copy the structure of.
 Read one atypical file too: it shows which parts are optional, which the typical
@@ -454,6 +475,19 @@ travels, which is the path yours must travel too.
 
 Find that chain now, before generating, so the files it forces you to edit are
 part of the plan rather than a discovery afterwards.
+
+**In C# the chain is not a file, so this command finds nothing and that is not
+an answer.** An unreferenced class compiles; the same failure appears as a
+service never registered. Ask the composition root instead, which is reachable
+because a field receiver keeps its name:
+
+```bash
+scripts/query.py calls --on services   # or --on builder, --on app
+```
+
+It names the files that register things — on a real ASP.NET codebase,
+`ServicesConfiguration.cs` and `Dependencies.cs`. Those are the files your new
+service has to be added to.
 
 ### 6. Decisions arrive throughout — ask when the work reaches them
 
@@ -511,7 +545,7 @@ exemplar disagrees.
   EXEMPLAR
     atlas                  6  100%  2026-06     --                    6
   REFERENCE
-    bulletproof-react      5   28%  2026-05     13   72%  2026-05    18
+    bulletproof-react      5   28%  2024-12     13   72%  2024-12    18
 
   corpus favours   useQuery
   atlas DISAGREES -- it uses useState
@@ -521,6 +555,16 @@ Read that as a **question**, never a verdict. A corpus can be unanimous and
 still wrong for this target, and `DISAGREES` is the start of a conversation with
 the user, not a defect to go and fix. What it removes is the alternative:
 proposing a change on the strength of your own opinion about what is modern.
+
+Two lines in that output decide how much it is worth:
+
+- **`SPLIT`** — counting by module and counting by codebase disagree, which
+  means one large repository is carrying the verdict. The corpus does not
+  settle it; say that rather than quoting either number.
+- **`*` beside a repository** — a shallow clone, so every date in its row is
+  the date it was fetched. The counts still stand; the dates are not history,
+  and `AGEING` cannot mean anything against them. `scripts/fetch.py --deepen`
+  repairs it, followed by a rebuild.
 
 Use it when a choice is load-bearing and the exemplar is unanimous — precisely
 where `questions` goes quiet. Do not run it on matters of taste; a token with no
@@ -678,12 +722,24 @@ that does not exist:
 scripts/index.py
 scripts/query.py conform \
     --repo <source> --path '<source layer>' \
-    --target-repo <target> --target-path '<generated layer>'
+    --target-repo <target> --target-path '<generated layer>' [--kind func]
 scripts/query.py calls --on <library or base>
 ```
 
 `conform` reports what is ALWAYS true of the source and not of the output. Every
 row is either a departure you can name or a mistake; there is no third kind.
+
+**Pass `--kind func` when the layer's unit is the function** — a component, a
+hook, a route handler. The default reads classes, and on a directory of forty
+components it reports that there is nothing to check rather than that it is
+looking for the wrong thing. It now says which, but the wrong answer is still
+yours to avoid.
+
+Two outputs mean less than they look like, and `conform` labels both. **NOTHING
+TO CHECK** means the source has no feature common to all of its members, so
+there is no contract here and the run proved nothing — narrow the filter until
+the source is one family. And a **one- or two-member side** makes "always true"
+trivially true; read those rows as description, not as a rule.
 
 **Rung 2 — the entry point runs.** Execute the thing the layer exists to feed:
 the generator, the migration, the server startup. Well-formed code that no one
@@ -705,6 +761,12 @@ the whole reason this skill exists, and it is invisible to rungs 1 and 2.
 
 **Rung 4 — pin it in the layer's own tests**, so the next change has to keep it
 true. Rung 3 proves it once; rung 4 proves it from then on.
+
+`conform --json` belongs here too: it prints the result and nothing else, so the
+contract check can run again automatically rather than only when someone
+remembers. Read `contract_empty` before `dropped` — an empty `dropped` means
+*nothing was broken* or *nothing was checked*, and a gate that conflates them
+reports success for a check that never ran.
 
 The interpreter must be one that can import what the generated code imports.
 Pointing `--python` at one that cannot turns a missing dependency into what

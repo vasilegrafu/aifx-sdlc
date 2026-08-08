@@ -52,8 +52,9 @@ Point it at codebases in `config.json`, at the root of this repository:
   templates. Declared by `repo` URL and fetched into the skill's own
   `.reference_corpus/<name>` by `scripts/fetch.py`; nothing here is a local path, so the corpus is
   reproducible on any machine. They answer "is this still how anyone builds it", which one codebase
-  cannot. Held out of every command except `practice` -- see "Is this still how
-  anyone builds it?" under Recipes for why that matters.
+  cannot. Held out of every command except `practice` (and `deps`, only when
+  passed `--references`) -- see "Is this still how anyone builds it?" under
+  Recipes for why that matters.
 - Any entry may take `"include": ["dir", "dir/sub"]` to read *only* those
   subtrees, or `"exclude": ["some/dir"]` to drop some. For a reference, prefer
   `include`: what you want from a library's repository is the part showing it
@@ -268,6 +269,33 @@ scripts/query.py conform \
 Every DROPPED row is either a departure you can name or a mistake. There is no
 third kind.
 
+Add `--kind func` when the layer is components, hooks or handlers — the default
+reads classes and would report a directory of forty components as having nothing
+to check. Two labels are worth knowing: **NOTHING TO CHECK** means the source
+has no feature shared by all its members, so the run proved nothing and the
+filter needs narrowing; and a one- or two-member side is flagged, because
+"always true" of one member is not a contract.
+
+**Running it as a gate.** `--json` prints the result and nothing else, so
+`conform` can run again automatically — rung 4 of this skill's own ladder,
+applied to what it generated:
+
+```bash
+scripts/query.py conform --json \
+    --repo atlas --path 'database/*/models/*' \
+    --target-repo solution.school --target-path 'database/models/*' \
+  | python -c "import json,sys; d=json.load(sys.stdin); \
+sys.exit(2 if d['contract_empty'] else len(d['dropped']))"
+```
+
+Read `contract_empty` before `dropped`. An empty `dropped` list means *nothing
+was broken* or *nothing was checked*, and those are opposite results that look
+identical — a gate that ignores the flag reports a green build for a check that
+never ran. A filter that matched nothing is reported the same way: still JSON,
+with an `error` field and `contract_empty` true, so a mistyped `--path` comes
+back inconclusive rather than clean. `questions --json` is the same idea for the
+decisions a layer forces.
+
 **Is anything calling a method that does not exist?**
 
 ```bash
@@ -286,6 +314,29 @@ using it, `calls --on media-breakpoint-up` every stylesheet including it. And a
 name that is defined but neither called nor invoked is reported as dead, with a
 warning worth heeding: a public mixin or an exported helper is called from
 outside the index, and absence of a caller there is not absence of a caller.
+
+**I added a C# service. What makes it take effect?**
+
+C# has no barrel file, so `imports --chain` has nothing to follow — and an
+unreferenced class compiles perfectly. The failure wears different clothes:
+a service that is never registered, a controller never discovered. The
+composition root is where that happens, and it is reachable as a *receiver*:
+
+```bash
+scripts/query.py calls --on services      # ServiceCollection extension methods
+scripts/query.py calls --on builder       # minimal hosting: builder.Services...
+scripts/query.py calls --on app           # the pipeline: app.Use..., app.Map...
+```
+
+Measured on `eShopOnWeb`, `calls --on services` reports `AddScoped` 21,
+`AddDbContext` 4, `AddSingleton` 1, `AddTransient` 1 — and names the files:
+`src/BlazorAdmin/ServicesConfiguration.cs` and `src/Infrastructure/Dependencies.cs`.
+Those are the two files a new service has to be added to, which is exactly what
+`imports <Symbol> --chain` tells you in Python.
+
+This works because a static or field receiver keeps its name at the call site.
+It is the same reason `calls --on <TypeName>` does *not* work in C# — see the
+caveat below — and the two facts are one fact seen from opposite sides.
 
 **Which pages break if I change this base template?**
 
@@ -307,14 +358,33 @@ under its header rather than leaving you to notice:
 - **A codebase not in git**, or one indexed with `--no-git`. Dates fall back to
   file modification times, which a copy, an unzip or a checkout resets wholesale.
   `meta` reports `git_dated: 0`.
+- **A history git could not read in time.** `git log --name-only` over a full
+  history prints one line per file per commit, and on a repository with tens of
+  thousands of commits it can exceed the timeout — after which every file falls
+  back to mtime. This used to happen in silence; `meta` now names the
+  repository under `dates_unavailable`, `index.py` prints `DATES UNAVAILABLE`
+  while building, and `shape` says the code *is* in git and its history was not
+  read, rather than blaming git.
 - **A shallow clone** (`git clone --depth 1`). The dates are real commit dates,
   but there is only one commit, so every file shares it and no file can ever
-  look older than another. `meta` lists the repository under `shallow`.
+  look older than another. `meta` lists the repository under `shallow`, and
+  `practice` marks such a row with `*` and says why underneath.
 
 Neither breaks anything — every command still works, and only the dates change
 meaning. But `AGEING` cannot fire in either case, and a date on a `VARIES` row
-stops being evidence. If you want real recency from a public repository, clone
-it without `--depth 1`.
+stops being evidence.
+
+For a reference codebase, repair it rather than working around it:
+
+```bash
+./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/fetch.py --deepen
+```
+
+`--deepen` gives every shallow clone its history back and touches nothing else.
+This is not something `--update` used to fix: **pulling a shallow clone leaves
+it shallow**, so a corpus cloned with `--depth 1` once stayed dateless through
+every update, and nothing said so. Re-index afterwards — the dates only change
+in the index when it is rebuilt.
 
 **What should I actually be asked before generating?**
 
@@ -370,11 +440,20 @@ scripts/query.py practice --on useState --versus useQuery --lang typescript
   EXEMPLAR
     atlas                  6  100%  2026-06     --                    6
   REFERENCE
-    bulletproof-react      5   28%  2026-05     13   72%  2026-05    18
+    bulletproof-react      5   28%  2024-12     13   72%  2024-12    18
 
   corpus favours   useQuery
+  by codebase      useQuery   (useQuery 1 of 1 codebase(s))
   atlas DISAGREES -- it uses useState
 ```
+
+Two lines qualify that verdict, and both are printed rather than left to be
+remembered. **`by codebase`** counts the same question one repository at a time,
+because a single large example farm owns a module count outright; when the two
+verdicts disagree the output says `SPLIT` and the corpus has not settled
+anything. And a **`*`** beside a repository means its dates are not history —
+either a shallow clone or a history git could not read — so weigh the counts and
+ignore the dates on that row.
 
 Percentages are head to head: the denominator is modules mentioning *either*
 option, not modules in the repository, because the useful comparison is between
@@ -389,8 +468,9 @@ Three things to keep in mind reading it:
   Read the dates, not only the counts.
 - **The corpus is ten repositories, not a survey.** Enough to show a choice is
   contested; not enough to settle it.
-- **It is the only command that reads references.** Every other command holds
-  them out, deliberately: ten reference codebases outnumber one exemplar, and
+- **It is the only command that reads references unasked** -- `deps` joins it
+  only when passed `--references`. Every other command holds them out,
+  deliberately: ten reference codebases outnumber one exemplar, and
   letting them into `shape` would replace your contract with an average of the
   internet. Measured — `shape --path '*/models/*'` sees 10 classes; with django
   let in it sees 674, of which 652 are django's.
@@ -407,21 +487,29 @@ Filters marked ● are shared by `find`, `shape`, `exemplars`, `imports` and
 | Command | Answers |
 |---|---|
 | `config` | which codebases and destination are configured, and whether they exist |
-| `meta` | what an index covers, when built, which languages, what was skipped, `git_dated` (how many files got a real commit date) and `shallow` (repositories with no history) |
+| `meta` | what an index covers, when built, which languages, what was skipped, `git_dated` (how many **indexed** files got a real commit date), `shallow` (repositories with no history) and `dates_unavailable` (repositories whose history git could not read, so their dates are mtimes) |
 | `layers` | what parts exist — directories, class counts, dominant base |
 | `find` | the definitions matching a filter, or `--files` for paths alone |
 | `shape` | what is ALWAYS true, what VARIES, what is ageing, where repos disagree |
-| `exemplars` | the most typical file to copy, and the outlier that shows what is optional |
+| `exemplars` | the most typical file to copy, and the outlier that shows what is optional. **Exemplars only** — the generated target is held out, since copying your own output makes one mistake a convention; `--include-target` or `--repo` overrides |
 | `imports SYMBOL` | who imports it; `--chain` follows re-exports up the registration chain |
 | `calls --on NAME` | methods called on a name vs. the ones it defines |
-| `conform` | whether generated code still keeps the source's contract |
+| `conform` | whether generated code still keeps the source's contract. Takes `--kind func` and `--tech`, so a component or hook layer can be checked too |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
 | `questions` | the decisions this layer forces, ranked by what they cost to get wrong |
 | `practice --on T --versus T` | how the reference corpus resolves a choice, against how your exemplar resolves it |
-| `deps` | what each codebase declares it depends on and what it runs; `--on NAME` for who declares a package |
+| `deps` | what the exemplars and the target declare they depend on and run; `--on NAME` for who declares a package; `--references` widens to the corpus |
 
 Shared filters ●: `--path GLOB`, `--not-path GLOB` (repeatable), `--base`,
 `--decorator`, `--symbol REGEX`, `--repo`, `--lang`.
+
+`--base` and `--decorator` match the **name exactly**, ignoring any generic
+parameter: `--base Repository` finds `Repository` and `Repository[Student]`, and
+a dotted expression matches on its last segment so `--decorator route` finds
+`app.route`. What it no longer does is match a substring — `--base Model` used
+to pull in `BaseModel` and `ModelForm`, quietly blending three families inside
+the one filter meant to separate them. Put a `*` in the string when you do want
+a pattern: `--base Base*`.
 
 `--limit` is **not** one of them — it is per command, with a default suited to
 that command: `layers` 40, `find` 60, `shape` 25, `imports` 40, `calls` 6,
@@ -430,7 +518,26 @@ neither, because a contract is not a list you truncate.
 
 Command-specific: `find --files --functions`, `layers --depth`,
 `shape --usually N` (default 60), `imports --chain`,
-`calls --on NAME --defined-in GLOB`, `conform --target-repo --target-path`.
+`calls --on NAME --defined-in GLOB`,
+`conform --target-repo --target-path --kind --tech --json`,
+`exemplars --include-target`, `deps --references`, `meta --verify`,
+`questions --json`.
+
+`--json` is on `conform` and `questions` only, and deliberately not on `shape`:
+its output is written to be read by a person, no consumer wanted it, and the
+change would have touched the most-used command in the skill for a benefit
+nobody could name.
+
+`shape`, `questions` and `conform` print a **STALE** line when a source has
+changed since its shard was built. That check walks the exemplars and the target
+only — a reference changes when you run `fetch.py` and not otherwise — and stops
+at the first file newer than the index, so it costs a fraction of a second.
+
+`imports --chain` keeps every hop **inside one repository**. A hop after a
+barrel file is a bare directory name — `models`, `utils`, `controllers` — and
+matched across the whole index those name a chain running through codebases
+that have never heard of each other. A wiring answer is only useful if the
+files in it are ones you can edit.
 
 `shape`, `exemplars` and `find` also take `--tech NAME` — react, mui, redux,
 vue, sqlalchemy, django, fastapi, aspnet, efcore, xunit and others, derived from
@@ -455,8 +562,14 @@ scripts/index.py                 # every configured repository
 scripts/index.py <path> <path>   # explicit roots, ignoring config
     --no-git         skip last-commit dates (recency falls back to mtime)
     --no-solution    sources only, leaving out the generated target
+    --no-references  leave out the reference corpus (much faster)
+    --only NAME[,..] rebuild only these, leaving every other one alone
     --max-bytes N    skip files larger than this
 ```
+
+A shard is written to `index.jsonl.pending` and moved into place once the
+repository is finished, so an interrupted build never leaves a truncated shard —
+it leaves the previous one. `scripts/query.py meta --verify` checks the pair.
 
 **Checking the tool itself**
 
@@ -564,9 +677,36 @@ repository in `config.json`.
 layers sharing a directory. Narrow with `--base`, `--decorator`, or a deeper
 `--path`, and run it on each side.
 
+**`shape` says it is blending repositories** — because it is. Every percentage
+is computed across all of them at once, so a row can describe a form neither
+codebase uses. `DISAGREEMENTS` catches the clean splits, where one side always
+does something and the other never does; it says nothing about a 40/60. Read
+each side with `--repo`.
+
 **Counts look doubled** — they should not. One physical file is indexed once,
 even when two solutions link to the same library through junctions. `meta` reports
 `duplicates_skipped` so you can confirm.
+
+**Counts look too low, or a `practice` denominator moved without a rebuild** —
+check the index against itself:
+
+```bash
+scripts/query.py meta --verify
+```
+
+That compares every shard against the number of files its `meta.json` claims. A
+build that was interrupted used to leave the two disagreeing: records are
+buffered, so a killed build discarded each repository's unwritten tail, while
+every `meta.json` had already been written with the full count. Measured once at
+15 of 26 repositories truncated and 720 records gone, four shards empty, and the
+**exemplar** 85 files short — with no error, every query answering, and every
+answer computed from a codebase that was not the one on disk.
+
+Shards are now written to a temporary file and moved into place when complete,
+so the shard and its summary agree by construction and an interruption leaves
+the previous shard untouched. `--verify` stays because an index built by an
+older `index.py` may still be on disk. If it reports a mismatch, rebuild —
+nothing else repairs it, and nothing else will tell you.
 
 ---
 
@@ -600,6 +740,11 @@ even when two solutions link to the same library through junctions. `meta` repor
   .reference_corpus/       the reference codebases, cloned by fetch.py —
                            gitignored, disposable, restore with fetch.py
 ```
+
+Every `meta.json` carries a `schema` number. When it disagrees with the scripts
+reading it, queries say so instead of quietly misreading records — one migration
+in this codebase is already handled by *sniffing* the shape of a field, which
+works once and only while the two shapes are distinguishable.
 
 Delete `.indexes/` any time. It is derived, and `index.py` rebuilds it in seconds.
 Its neighbour `.reference_corpus/` is derived too, and that is exactly why they

@@ -40,11 +40,13 @@ from collections import Counter, defaultdict
 
 from _common import (configured_questions, configured_references,
                      configured_repositories, configured_solution, corpus_root,
-                     ROLE_DIRS, ROLE_ORDER,
-                     display_path, find_files, index_root, indexed_repositories,
+                     INDEX_SCHEMA, ROLE_DIRS, ROLE_ORDER,
+                     display_path, find_files, index_meta, index_root,
+                     index_schema_warning, indexed_repositories, iter_source_files,
                      load_config, pct,
                      indexed_roles, read_index, rollup_path, skill_root,
                      truncate)
+from extractors import ALL_EXTENSIONS
 
 # ---------------------------------------------------------------- filtering
 
@@ -52,6 +54,47 @@ from _common import (configured_questions, configured_references,
 def head(expr: str) -> str:
     """`session_injector` from `session_injector(x)`; `app.route` from `app.route(...)`."""
     return expr.split("(", 1)[0].strip()
+
+
+def symbol_root(expr: str) -> str:
+    """`Base` from `Base[Model]`, `Base<T>`, `Base(x)`; `app.route` keeps its dot.
+
+    Generic parameters are not part of the name. A layer written
+    `Repository[Student]`, `Repository[Subject]` is one base class used twice,
+    and treating the parameter as part of it reports two families of one.
+    """
+    e = head(expr).strip()
+    for sep in ("[", "<"):
+        if sep in e:
+            e = e.split(sep, 1)[0]
+    return e.strip()
+
+
+def symbol_matches(expr: str, wanted: str) -> bool:
+    """Whether a base or decorator expression is the one asked for.
+
+    Exact on the root, not a substring. `--base Model` matching `BaseModel`,
+    `ModelForm` and `db.Model` alike was silently blending families inside the
+    one command whose job is separating them -- and the blend is invisible,
+    because the output looks like a layer that merely disagrees with itself.
+
+    Two accommodations, both narrow. A dotted expression matches on its last
+    segment, so `--decorator route` finds `app.route` and `--base Model` finds
+    `db.Model`; that is qualification, not a different name. And a `*` or `?`
+    in the wanted string means the caller wants a pattern and gets one, which
+    is how the old loose behaviour stays available to anyone who meant it.
+
+    The dotted tail is withheld from anything path-shaped. A template's base is
+    `admin/base_site.html`, whose last dotted segment is `html` -- so `--base
+    html` would match every template in the project.
+    """
+    if any(ch in wanted for ch in "*?"):
+        return (fnmatch.fnmatch(head(expr), wanted)
+                or fnmatch.fnmatch(symbol_root(expr), wanted))
+    root = symbol_root(expr)
+    if root == wanted:
+        return True
+    return "/" not in root and root.rsplit(".", 1)[-1] == wanted
 
 
 def call_sites(entries) -> list[tuple[str, int | None]]:
@@ -113,11 +156,11 @@ def matches(rec, args) -> bool:
         if fnmatch.fnmatch(rec["path"], glob):
             return False
     if args.base:
-        if rec["k"] != "class" or not any(args.base == head(b) or args.base in b
+        if rec["k"] != "class" or not any(symbol_matches(b, args.base)
                                           for b in rec["bases"]):
             return False
     if args.decorator:
-        if not any(args.decorator == head(d) or args.decorator in d
+        if not any(symbol_matches(d, args.decorator)
                    for d in rec.get("decorators", [])):
             return False
     if args.symbol and not re.search(args.symbol, rec.get("name", "")):
@@ -365,7 +408,8 @@ def cmd_config(args):
               f"{len(refs) - len(missing)} present")
         print("              evidence about what the wider world does, never a"
               "\n              template. Held out of shape, layers, exemplars,"
-              "\n              questions and DISAGREEMENTS; read only by `practice`.")
+              "\n              questions and DISAGREEMENTS; read by `practice`,"
+              "\n              and by `deps` only with --references.")
         print(f"              under {display_path(corpus_root())}/")
         for r in refs:
             # The path is deliberately not repeated per row. A fetched
@@ -624,12 +668,60 @@ def cmd_proof(args):
                               if test_dirs else "no test directories in the index"))
 
 
+def check_shards() -> list[str]:
+    """Repositories whose records do not match what their meta.json claims.
+
+    Cheap insurance against a class of corruption that is otherwise completely
+    silent. A shard and its summary are written by the same run, so they agree
+    unless something interrupted it -- and an interrupted build used to leave a
+    truncated shard beside a meta.json boasting the full count. Every query then
+    answered, from a codebase that was not the one on disk.
+
+    Shards are written atomically now, so this should never fire. It is kept
+    because "should never" is what the previous arrangement also assumed, and
+    because an index built by an older `index.py` is still on disk somewhere.
+    """
+    out = []
+    for shard in indexed_repositories():
+        try:
+            claimed = json.loads(shard["meta"].read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            out.append(f"{shard['dir']}: unreadable meta.json beside a shard")
+            continue
+        actual = 0
+        try:
+            with shard["records"].open("r", encoding="utf-8") as fh:
+                for line in fh:
+                    if line.strip() and json.loads(line).get("k") == "module":
+                        actual += 1
+        except (OSError, ValueError) as exc:
+            out.append(f"{shard['dir']}: unreadable records ({exc})")
+            continue
+        expected = claimed.get("files")
+        if isinstance(expected, int) and expected != actual:
+            out.append(f"{claimed.get('repo') or shard['dir']}: meta claims "
+                       f"{expected} files, the shard holds {actual}")
+    return out
+
+
 def cmd_meta(args):
     path = rollup_path()
     if not path.exists():
         return print(f"no index at {display_path(index_root())}"
                      "\nbuild one first:  scripts/index.py")
     meta = json.loads(path.read_text(encoding="utf-8"))
+    if args.verify:
+        problems = check_shards()
+        print("== INTEGRITY ==")
+        if problems:
+            print("  Every count below is therefore describing a codebase that"
+                  " is not the one on\n  disk. Rebuild: scripts/index.py\n")
+            for p in problems:
+                print(f"  MISMATCH  {p}")
+        else:
+            print("  ok -- every shard holds the number of files its meta"
+                  " claims")
+        print()
     for k, v in meta.items():
         if isinstance(v, dict):
             print(f"{k:>10}:")
@@ -732,7 +824,22 @@ def shallow_repos() -> frozenset:
         return frozenset()
 
 
-def date_provenance(recs, shallow=frozenset()) -> str | None:
+def dates_unavailable() -> dict[str, str]:
+    """`{repo: why it has no commit dates}`, as `index.py` recorded it.
+
+    Separate from `shallow`, and the distinction is the point: a shallow clone
+    has real dates that are all the same, while these have no commit dates at
+    all because git could not answer. Both make `AGEING` meaningless and they
+    are not the same fact, so they do not share a message.
+    """
+    try:
+        return dict(json.loads(rollup_path().read_text(encoding="utf-8"))
+                    .get("dates_unavailable") or {})
+    except (OSError, ValueError):
+        return {}
+
+
+def date_provenance(recs, shallow=frozenset(), unavailable=None) -> str | None:
     """Why the dates in this set cannot be trusted, or None if they can.
 
     Dates are the only thing separating a live convention from a fossil, and
@@ -751,6 +858,16 @@ def date_provenance(recs, shallow=frozenset()) -> str | None:
     if not recs:
         return None
     if not any(r.get("commit") for r in recs):
+        # Say which of the three it is. "Nothing here is in git" was printed for
+        # a repository that is in git and whose history was simply too large to
+        # read in the time allowed -- a wrong explanation is worse than a vague
+        # one, because it sends the reader to fix the wrong thing.
+        blamed = sorted({r["repo"] for r in recs} & set(unavailable or {}))
+        if blamed:
+            return ("file mtimes, not commits -- " + (unavailable or {})[blamed[0]]
+                    + f"\n         ({', '.join(blamed)}). The code is in git;"
+                    " its history was not read.\n         AGEING is not"
+                    " meaningful here.")
         return ("file mtimes, not commits -- nothing here is in git, or it was"
                 "\n         indexed with --no-git. A copy or checkout resets "
                 "every one of them\n         to the same instant, so AGEING is "
@@ -763,11 +880,78 @@ def date_provenance(recs, shallow=frozenset()) -> str | None:
     return None
 
 
+_STALE_CACHE = None
+
+
+def stale_repositories(budget: int = 40000) -> list[str]:
+    """Repositories whose source has changed since their shard was built.
+
+    Staleness is the one failure this skill documents at length and never
+    detects: "rebuild whenever a source may have changed" is discipline, and
+    discipline is exactly what a contract computed from last week's index does
+    not benefit from. The answer is wrong in the most expensive way -- it is
+    plausible, it is specific, and it describes code that has since moved.
+
+    Exemplars and the target only. A reference changes when `fetch.py` is run
+    and not otherwise, so paying to walk twenty-odd of them on every query buys
+    nothing.
+
+    Cheap on purpose: the walk stops at the first file newer than the shard,
+    because one is proof and the rest is arithmetic. The budget bounds the
+    opposite case -- an up-to-date monorepo, where there is no early exit to
+    find -- and a walk that runs out says nothing rather than guessing.
+    """
+    global _STALE_CACHE
+    if _STALE_CACHE is not None:
+        return _STALE_CACHE
+    _STALE_CACHE = []
+    seen = 0
+    for record in configured_repositories() + [configured_solution()]:
+        if not record["exists"]:
+            continue
+        role = "target" if record.get("is_target") else "exemplar"
+        try:
+            built = json.loads(index_meta(role, record["name"])
+                               .read_text(encoding="utf-8")).get("built")
+            built_at = datetime.datetime.strptime(built, "%Y-%m-%d %H:%M:%S")
+        except (OSError, ValueError, TypeError):
+            continue
+        cutoff = built_at.timestamp()
+        for path in iter_source_files(record["path"], 2_000_000,
+                                      record.get("exclude", ()),
+                                      ALL_EXTENSIONS,
+                                      include=record.get("include", ())):
+            seen += 1
+            if seen > budget:
+                return _STALE_CACHE
+            try:
+                if path.stat().st_mtime > cutoff:
+                    _STALE_CACHE.append(record["name"])
+                    break
+            except OSError:
+                continue
+    return _STALE_CACHE
+
+
+def warn_if_stale() -> None:
+    """One line, before the answer, when the answer may describe old code."""
+    schema = index_schema_warning()
+    if schema:
+        print(f"  SCHEMA: {schema}\n")
+    stale = stale_repositories()
+    if stale:
+        print(f"  STALE: {', '.join(stale)} changed since the index was built."
+              " What follows may\n         describe code that has moved."
+              "  scripts/index.py --only "
+              + ",".join(stale) + "\n")
+
+
 def cmd_shape(args):
     recs = collect(args, kinds=kinds_for(args))
     if not recs:
         return print("nothing matched -- widen --path, drop --base,"
                      " or try --kind func")
+    warn_if_stale()
     total = len(recs)
     per_repo = Counter(r["repo"] for r in recs)
     noun = "functions" if recs[0]["k"] == "func" else "classes"
@@ -784,7 +968,7 @@ def cmd_shape(args):
     set_newest = max((stamp(r) for r in recs), default=0)
     set_oldest = min((stamp(r) for r in recs if stamp(r)), default=0)
     ageing = 365 * 24 * 3600
-    dates_are = date_provenance(recs, shallow_repos())
+    dates_are = date_provenance(recs, shallow_repos(), dates_unavailable())
 
     print(f"{total} {noun}"
           + (f"  ({', '.join(f'{k} {v}' for k, v in per_repo.items())})"
@@ -808,6 +992,19 @@ def cmd_shape(args):
               f" filter and are not\n        described here. If this layer's unit is"
               f" the function -- components,\n        hooks, handlers -- run --kind"
               f" func.")
+
+    # Every percentage below is computed across all of these repositories at
+    # once. DISAGREEMENTS catches the clean splits -- always here, never there
+    # -- and says nothing about a 40/60, which is exactly where a blended row
+    # describes a form neither codebase uses. That is the failure this skill
+    # names for averaging two exemplars, arriving through a glob instead.
+    if len(per_repo) > 1:
+        print(f"  note: these percentages blend {len(per_repo)} repositories."
+              " A row can describe a form"
+              f"\n        neither one uses -- read one side with --repo"
+              f" <{'|'.join(list(per_repo)[:3])}>."
+              "\n        DISAGREEMENTS below catches the clean splits, not a"
+              " 40/60.")
 
     for kind, label in LABELS.items():
         items = [(f.split(":", 1)[1], n) for f, n in counts.items()
@@ -915,7 +1112,32 @@ def cmd_shape(args):
 
 
 def cmd_exemplars(args):
+    """The file to copy, and the outlier that shows what is optional.
+
+    Exemplars only, unless asked otherwise. This command's whole output is an
+    instruction to *copy the structure of these*, and the generated target is
+    not a thing to copy from -- ranking one of its files most typical tells you
+    to reproduce your own last pass, which is how a mistake made once becomes
+    the convention. The target still outranks the source everywhere it decides
+    something; that is `shape`, `conform` and `questions`, none of which are
+    telling you what to imitate.
+    """
     recs = collect(args, kinds=kinds_for(args))
+    # `--repo` is explicit and wins: naming the target means meaning it.
+    if recs and not args.repo and not args.include_target:
+        roles = indexed_roles()
+        only_exemplars = [r for r in recs
+                          if roles.get(r["repo"], "exemplar") == "exemplar"]
+        held = len(recs) - len(only_exemplars)
+        if only_exemplars and held:
+            recs = only_exemplars
+            print(f"  ({held} definition(s) in the generated target held out --"
+                  f" it is not what you copy.\n   --include-target, or --repo,"
+                  f" to read it anyway.)\n")
+        elif not only_exemplars:
+            print("  (no exemplar matched, so this describes the generated"
+                  " target itself.\n   Read it as what you already wrote, not"
+                  " as a model to copy.)\n")
     if not recs:
         return print("nothing matched -- widen --path, drop --base,"
                      " or try --kind func")
@@ -1063,8 +1285,20 @@ def cmd_calls(args):
     if found_class is None:
         print(f"  {on} is not defined in this index, so nothing can be checked "
               f"against it.\n  Calls found:\n")
-        for attr, sites in sorted(called.items(), key=lambda kv: -len(kv[1])):
+        # With the sites, not just the counts. This branch is what answers the
+        # C# wiring question -- a service registered on `services` or `builder`
+        # is the analogue of a class nothing imports -- and "AddScoped 21" is
+        # useless for that while "AddScoped, in these two files" is the answer.
+        # The sites were being collected and thrown away.
+        ranked = sorted(called.items(), key=lambda kv: -len(kv[1]))
+        for attr, sites in ranked[: args.limit]:
             print(f"    {attr:<28} {len(sites)}")
+            for site in sites[:3]:
+                print(f"      {site}")
+            if len(sites) > 3:
+                print(f"      ... {len(sites) - 3} more")
+        if len(ranked) > args.limit:
+            print(f"    ... {len(ranked) - args.limit} more method(s) (--limit)")
         return
 
     print(f"defined at {found_class['repo']}/{found_class['path']}:{found_class['line']}"
@@ -1217,7 +1451,22 @@ def cmd_questions(args):
     """
     recs = collect(args, kinds=kinds_for(args))
     if not recs:
+        # Parseable even when it is empty -- see `nothing_matched` in
+        # `cmd_conform` for why prose on this stream is the wrong answer.
+        if getattr(args, "json", False):
+            return print(json.dumps({
+                "schema": INDEX_SCHEMA, "command": "questions",
+                "kind": kinds_for(args)[0], "error": "nothing matched",
+                "members": 0, "candidates": 0, "stale": stale_repositories(),
+                "asked": [], "settled_by_code": [], "below_the_line": 0,
+            }, indent=2))
         return print("nothing matched -- widen --path, or try --kind func")
+    # Not under `--json`: a warning printed above the payload is text on a
+    # stream a machine is parsing, and it would break every consumer exactly
+    # when the index is stale -- the moment the consumer most needs an answer.
+    # The same fact travels inside the document, as `stale`.
+    if not getattr(args, "json", False):
+        warn_if_stale()
     total = len(recs)
     per_repo = Counter(r["repo"] for r in recs)
     target = configured_solution()["name"]
@@ -1297,6 +1546,29 @@ def cmd_questions(args):
     by_code = target_settled(args, ranked)
     asked = [c for c in ranked if c[1] not in by_code][: args.limit]
 
+    if getattr(args, "json", False):
+        # The decisions, with the numbers that justify each one. `--limit`
+        # still applies: what is below the line is decided and stated rather
+        # than asked, and a consumer that wants all of it can raise the limit.
+        print(json.dumps({
+            "schema": INDEX_SCHEMA,
+            "command": "questions",
+            "kind": recs[0]["k"],
+            "members": total,
+            "candidates": len(ranked),
+            "stale": stale_repositories(),
+            "asked": [{"id": ident, "score": round(score, 2), "kind": kind,
+                       "title": title, "evidence": note,
+                       "why": WHY.get(kind)}
+                      for score, ident, kind, title, note, _item in asked],
+            # Not questions. Facts read back out of code that already exists,
+            # which is what "the target outranks the source" means here.
+            "settled_by_code": [{"id": ident, "how": how}
+                                for ident, how in by_code.items()],
+            "below_the_line": max(0, len(ranked) - len(by_code) - len(asked)),
+        }, indent=2))
+        return
+
     print(f"{total} {'functions' if recs[0]['k'] == 'func' else 'classes'} "
           f"-> {len(ranked)} candidate decisions, showing {len(asked)}\n")
     if len(ranked) > total * 2:
@@ -1327,13 +1599,6 @@ def cmd_questions(args):
             print(f"        why it matters: {WHY[kind]}")
         print()
 
-    if by_code:
-        print(f"  {len(by_code)} answered by the code already -- the target "
-              f"outranks the source,\n  so these are read back rather than asked:")
-        for ident, how in list(by_code.items())[:6]:
-            print(f"      {ident:<28} {how}")
-        print()
-
     below = len(ranked) - len(by_code) - len(asked)
     if below > 0:
         print(f"  {below} more below the line. Those are not asked -- they are "
@@ -1345,27 +1610,154 @@ def cmd_conform(args):
 
     `shape` says what is ALWAYS true of the source. Nothing else checks that the
     output kept it. This does: same measure, both sides, difference reported.
+
+    `--kind func` is not a refinement, it is the difference between this command
+    working and not existing. A React component, a hook and a route handler are
+    functions, and while this read classes only, every function layer this skill
+    can generate had **no rung-8 check at all** -- the one step that asks whether
+    the output still keeps the contract simply had nothing to say about half of
+    what the skill builds.
     """
-    source = [r for r in read_index() if r["k"] == "class"
-              and fnmatch.fnmatch(r["path"], args.path)
-              and (not args.repo or r["repo"] == args.repo)]
-    target = [r for r in read_index() if r["k"] == "class"
-              and fnmatch.fnmatch(r["path"], args.target_path)
-              and (not args.target_repo or r["repo"] == args.target_repo)]
+    kinds = kinds_for(args)
+    noun = "functions" if kinds == ("func",) else "classes"
+    source, target, tech = [], [], {}
+    # Counted so a filter that matched the *other* kind can say so. Silence
+    # there reads as "the layer is empty", which for a directory of forty
+    # components is the wrong conclusion drawn confidently.
+    other_source = other_target = 0
+    for r in read_index():
+        if r["k"] == "module":
+            found = technologies_of(r.get("imports"))
+            if found:
+                tech.setdefault((r["repo"], r["path"]), set()).update(found)
+            continue
+        markup = markup_technologies_of(r)
+        if markup:
+            tech.setdefault((r["repo"], r["path"]), set()).update(markup)
+        if r["k"] not in ("class", "func"):
+            continue
+        is_source = (fnmatch.fnmatch(r["path"], args.path)
+                     and (not args.repo or r["repo"] == args.repo))
+        is_target = (fnmatch.fnmatch(r["path"], args.target_path)
+                     and (not args.target_repo or r["repo"] == args.target_repo))
+        if r["k"] in kinds:
+            if is_source:
+                source.append(r)
+            if is_target:
+                target.append(r)
+        else:
+            other_source += 1 if is_source else 0
+            other_target += 1 if is_target else 0
+
+    want = getattr(args, "tech", None)
+    if want:
+        source = [r for r in source if want in tech.get((r["repo"], r["path"]), ())]
+        target = [r for r in target if want in tech.get((r["repo"], r["path"]), ())]
+
+    def swap(n: int) -> str:
+        if not n:
+            return ""
+        if kinds == ("func",):
+            return (f"\n  The filter matched {n} class(es). This layer's unit"
+                    " looks like the class -- run --kind class.")
+        return (f"\n  The filter matched {n} module-level function(s). If this"
+                " layer's unit is the\n  function -- components, hooks,"
+                " handlers are -- run --kind func.")
+
+    def nothing_matched(message: str) -> None:
+        """A filter that matched nothing is a result, and under `--json` it has
+        to be a *parseable* one.
+
+        A mistyped path would otherwise print prose to a stream a machine is
+        reading -- and the failure mode is worse than a crash: an empty
+        `dropped` list reads as "nothing was broken". `contract_empty` is true
+        here for the same reason it exists at all, so the gate in `MANUAL.md`
+        treats a typo as inconclusive rather than as a pass.
+        """
+        if getattr(args, "json", False):
+            print(json.dumps({
+                "schema": INDEX_SCHEMA, "command": "conform", "kind": kinds[0],
+                "error": message,
+                "source": {"repo": args.repo, "path": args.path,
+                           "count": len(source)},
+                "target": {"repo": args.target_repo, "path": args.target_path,
+                           "count": len(target)},
+                "contract_empty": True, "stale": stale_repositories(),
+                "kept": [], "dropped": [], "added": [],
+            }, indent=2))
+        else:
+            print(message)
 
     if not source:
-        return print("no source classes matched --path/--repo")
+        return nothing_matched(f"no source {noun} matched --path/--repo"
+                               + swap(other_source))
     if not target:
-        return print("no target classes matched --target-path/--target-repo")
+        return nothing_matched(f"no target {noun} matched"
+                               " --target-path/--target-repo"
+                               + swap(other_target))
 
     source_always = set.intersection(*(features(r) for r in source))
     target_always = set.intersection(*(features(r) for r in target))
 
-    print(f"source {len(source)} classes  ->  target {len(target)} classes\n")
-
     kept = sorted(source_always & target_always)
     dropped = sorted(source_always - target_always)
     added = sorted(target_always - source_always)
+
+    if getattr(args, "json", False):
+        # For a gate, not for a person. `conform` is the one command whose
+        # answer is a pass or a fail about code that already exists, which
+        # makes it the one worth running again automatically -- rung 4 of the
+        # skill's own ladder, applied to the skill's own output.
+        #
+        # `contract_empty` is in here rather than left to be inferred from an
+        # empty `dropped`, because those two look identical to a caller and
+        # mean opposite things: nothing was broken, versus nothing was checked.
+        print(json.dumps({
+            "schema": INDEX_SCHEMA,
+            "command": "conform",
+            "kind": kinds[0],
+            "source": {"repo": args.repo, "path": args.path, "count": len(source)},
+            "target": {"repo": args.target_repo, "path": args.target_path,
+                       "count": len(target)},
+            "contract_empty": not source_always,
+            "stale": stale_repositories(),
+            "kept": [f.split(":", 1)[1] for f in kept],
+            "dropped": [{"kind": f.split(":", 1)[0], "item": f.split(":", 1)[1],
+                         "absent_from": [r["name"] for r in target
+                                         if f not in features(r)]}
+                        for f in dropped],
+            "added": [f.split(":", 1)[1] for f in added],
+        }, indent=2))
+        return
+
+    warn_if_stale()
+    print(f"source {len(source)} {noun}  ->  target {len(target)} {noun}\n")
+
+    # "Always true" of one member is just "true of that member", and an
+    # intersection over two is barely stronger. Both sides are worth saying out
+    # loud, because the arithmetic is silent about it: a one-member target makes
+    # every one of its features ADDED, and the reader sees seventy rows that
+    # mean nothing.
+    singular = "function" if noun == "functions" else "class"
+    thin = [f"{side} is {n} {singular if n == 1 else noun}"
+            for side, n in (("the source", len(source)), ("the target", len(target)))
+            if n < 3]
+    if thin:
+        print(f"  note: {', and '.join(thin)}. What is 'always true' of one or"
+              " two members is\n        barely a contract -- read the rows"
+              " below as description, not as a rule.\n")
+
+    # An empty intersection is not a pass. The DROPPED section below would say
+    # "the target keeps everything the source contracts", which is true and
+    # worthless when the source contracts nothing -- and it reads exactly like
+    # a clean result. This is the one outcome of this command that could be
+    # mistaken for proof of something.
+    if not source_always:
+        print("  NOTHING TO CHECK -- the source has no feature common to all"
+              f" {len(source)} {noun},\n  so there is no contract here to keep"
+              " or drop. That is a fact about the\n  filter, not about the"
+              " output: narrow it with --base, --tech or a deeper\n  --path"
+              " until the source is one family, then run this again.\n")
 
     print(f"== KEPT ({len(kept)}) ==")
     print("  " + (", ".join(f.split(':', 1)[1] for f in kept) if kept else "-"))
@@ -1380,8 +1772,11 @@ def cmd_conform(args):
             print(f"  {LABELS.get(kind, kind)}: {item}")
             print(f"      absent from {len(missing_in)}/{len(target)}: "
                   f"{truncate(', '.join(missing_in[:6]), 70)}")
-    else:
+    elif source_always:
         print("  none -- the target keeps everything the source contracts.")
+    else:
+        print("  none, but only because the source contracts nothing -- see"
+              " above.")
 
     if added:
         print(f"\n== ADDED ({len(added)}) ==")
@@ -1398,15 +1793,35 @@ def cmd_imports(args):
             continue
         if rec["k"] == "module":
             modules.append(rec)
-        elif rec["k"] == "class" and any(head(b) == sym for b in rec["bases"]):
+        elif rec["k"] == "class" and any(symbol_matches(b, sym)
+                                         for b in rec["bases"]):
             subclasses.append((rec["repo"], rec["path"], rec["name"]))
 
-    frontier, seen, level = {sym}, {sym}, 0
+    # The frontier carries the repository each name came from, and `None` means
+    # "any" -- which only the symbol the user typed is entitled to be.
+    #
+    # Every hop after the first is a *package directory name*: `models`,
+    # `utils`, `controllers`. Matched across the whole index those hit every
+    # codebase that happens to own a directory of the same name, and the
+    # command then reports a registration chain running through repositories
+    # that have never heard of each other. A wiring answer is only useful if it
+    # names files you can actually edit, so a hop stays where it was found.
+    frontier: set[tuple[str | None, str]] = {(None, sym)}
+    seen: set[tuple[str | None, str]] = {(None, sym)}
+    level = 0
     while frontier:
-        hits = [(m, _imports_any(m, frontier)) for m in modules]
-        hits = [(m, i) for m, i in hits if i]
+        hits = []
+        for m in modules:
+            wanted = {name for repo, name in frontier
+                      if repo is None or repo == m["repo"]}
+            if not wanted:
+                continue
+            found = _imports_any(m, wanted)
+            if found:
+                hits.append((m, found))
         label = ("IMPORTED BY" if level == 0
-                 else f"WHICH IS REACHED THROUGH ({' / '.join(sorted(frontier))})")
+                 else "WHICH IS REACHED THROUGH ("
+                      + " / ".join(sorted({n for _, n in frontier})) + ")")
         print(f"{label} ({len(hits)})"
               + ("   -- these are the files that must change for a new one "
                  "to take effect" if level == 0 else "") + "\n")
@@ -1422,9 +1837,9 @@ def cmd_imports(args):
         # A package __init__ that re-exports is not the end of the chain: the
         # thing that makes a definition take effect may be several hops up,
         # and each hop is another file that has to be edited.
-        nxt = {m["dir"].rsplit("/", 1)[-1] for m, _ in hits
+        nxt = {(m["repo"], m["dir"].rsplit("/", 1)[-1]) for m, _ in hits
                if barrel_for(m) and m["path"].endswith(barrel_for(m)) and m["dir"]}
-        frontier = nxt - seen
+        frontier = {e for e in nxt - seen if e[1] != sym}
         seen |= frontier
         if not frontier:
             break
@@ -1443,17 +1858,20 @@ def cmd_imports(args):
     # every level below it renders differently, and none of them errors.
     if args.chain and subclasses:
         classes = [r for r in read_index() if r["k"] == "class"]
-        frontier = {name for _, _, name in subclasses}
-        seen_names, level = set(frontier) | {sym}, 1
+        # Repository-scoped for the same reason as the barrel chain above. Two
+        # codebases both holding a `base.html` is ordinary, and a chain that
+        # crossed between them would report pages that no edit here can break.
+        frontier = {(repo, name) for repo, _, name in subclasses}
+        seen_names, level = set(frontier) | {(r, sym) for r, _, _ in subclasses}, 1
         while frontier and level < args.depth:
-            nxt = {r["name"] for r in classes
-                   if any(head(b) in frontier for b in r["bases"])
-                   and r["name"] not in seen_names}
+            nxt = {(r["repo"], r["name"]) for r in classes
+                   if any((r["repo"], head(b)) in frontier for b in r["bases"])
+                   and (r["repo"], r["name"]) not in seen_names}
             if not nxt:
                 break
             print(f"\nWHICH IS EXTENDED BY ({len(nxt)})   -- level {level + 1}\n")
-            for n in sorted(nxt)[: args.limit]:
-                print(f"  {n}")
+            for repo, n in sorted(nxt)[: args.limit]:
+                print(f"  {repo}/{n}")
             if len(nxt) > args.limit:
                 print(f"  ... {len(nxt) - args.limit} more (--limit)")
             seen_names |= nxt
@@ -1473,8 +1891,13 @@ def cmd_deps(args):
     `--on NAME` answers the other direction -- who declares this, at what
     version -- which is how you find out whether a dependency an option implies
     is already paid for.
+
+    Exemplars and the target only, unless `--references` widens it. "Already
+    paid for" is a question about who pays: a package that only a reference
+    declares is a new commitment all the same, and counting it would answer
+    yes on the strength of somebody else's manifest.
     """
-    everything = [r for r in read_index(include_references=True)
+    everything = [r for r in read_index(include_references=args.references)
                   if r["k"] == "manifest"]
     records = [r for r in everything
                if (not args.repo or r["repo"] == args.repo)
@@ -1485,9 +1908,17 @@ def cmd_deps(args):
         # fact worth knowing -- its dependencies live only in whatever
         # environment happens to be active, and nothing can reproduce it.
         if not everything:
-            return print("no manifests anywhere in this index."
-                         "\nIf it was built before manifests were read, rebuild it.")
+            scope = ("anywhere in this index" if args.references
+                     else "in the exemplars or the target (--references widens)")
+            return print(f"no manifests {scope}."
+                         "\nIf the index was built before manifests were read,"
+                         " rebuild it.")
         where = args.repo or args.path or "that filter"
+        if (args.repo and not args.references
+                and indexed_roles().get(args.repo) == "reference"):
+            return print(f"{args.repo} is a reference codebase, and references"
+                         " are not read here by default.\nPass --references to"
+                         " see what it declares.")
         return print(f"no manifest under {where} -- it declares no dependencies."
                      f"\n{len(everything)} manifest(s) elsewhere in this index, so"
                      f" the index is not the problem."
@@ -1510,6 +1941,9 @@ def cmd_deps(args):
                         found = True
         if not found:
             print(f"  nothing declares it -- including it means adding it")
+            if not args.references:
+                print("  (references not searched -- a reference's manifest is"
+                      " not the target's commitment; --references to look)")
         return
 
     for r in sorted(records, key=lambda x: (roles.get(x["repo"], ""), x["repo"])):
@@ -1572,11 +2006,11 @@ def _mentions(rec, tokens: set[str]) -> set[str]:
 def cmd_practice(args):
     """How the wider world resolves a choice, against how the exemplar resolves it.
 
-    This is the only command that reads the reference corpus, and the only one
-    that is allowed to. Everything else computes a contract, and a contract must
-    come from the code being copied -- nine reference repositories outnumber one
-    exemplar, so letting them in replaces the convention being reproduced with
-    an average of the internet.
+    This is the only command that reads the reference corpus unasked -- `deps`
+    joins it only when passed `--references`. Everything else computes a
+    contract, and a contract must come from the code being copied -- nine
+    reference repositories outnumber one exemplar, so letting them in replaces
+    the convention being reproduced with an average of the internet.
 
     What it answers is a different question: not "what is the convention here"
     but "is this convention still how anyone does it". Percentages are head to
@@ -1592,6 +2026,12 @@ def cmd_practice(args):
     tokens = [args.on] + list(args.versus or ())
     token_set = set(tokens)
     roles = indexed_roles()
+    # Two different ways a date stops being history, marked the same in the
+    # table because the reader's next move is identical -- do not weigh this
+    # row's dates -- and separated in the footnote because the repairs differ.
+    shallow = shallow_repos()
+    undated = dates_unavailable()
+    unreliable = set(shallow) | set(undated)
 
     # (repo, token) -> module paths; and the most recent touch per pair.
     users: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -1641,27 +2081,105 @@ def cmd_practice(args):
                 n = len(users[(repo, tok)])
                 cells.append(f"{n:>4} {str(pct(n, total)) + '%':>5} {when(latest[(repo, tok)]):>8}"
                              if n else f"{'--':>4} {'':>5} {'':>8}")
-            print(f"    {repo:<{width}}" + "".join(f"  {c:<{cell}}" for c in cells)
+            # A shallow clone has one commit, so every date in its row is the
+            # date it was fetched. Marked rather than hidden: the counts are
+            # still evidence, and only the dates stop being history.
+            label = repo + (" *" if repo in unreliable else "")
+            print(f"    {label:<{width}}" + "".join(f"  {c:<{cell}}" for c in cells)
                   + f"  {total:>4}"
                   + (f"  of {lang_modules[repo]} indexed" if lang_modules.get(repo) else ""))
+        print()
+
+    # The footnote is not decoration. `MANUAL.md` tells the reader to weigh the
+    # dates and not only the counts, and for a shallow repository that advice
+    # is actively wrong -- the date is one clone timestamp wearing the costume
+    # of a last-touched signal.
+    marked_shallow = sorted(r for r in any_use if r in shallow)
+    marked_undated = sorted(r for r in any_use if r in undated
+                            and r not in shallow)
+    if marked_shallow or marked_undated:
+        print("  * dates below are not history. The counts stand; the dates"
+              " cannot say whether a\n    convention is current, and AGEING"
+              " cannot fire against them.")
+        if marked_shallow:
+            print(f"      shallow clone -- {', '.join(marked_shallow)}:"
+                  " every file shares the date it was"
+                  "\n        fetched. `scripts/fetch.py --deepen`, then rebuild.")
+        if marked_undated:
+            print(f"      no commit dates -- {', '.join(marked_undated)}:"
+                  " these are file modification times."
+                  "\n        The code is in git; its history was not read."
+                  " See `meta` for why.")
         print()
 
     # The two readings worth stating, because both are easy to miss in a table.
     refs = [r for r in any_use if roles.get(r) == "reference"]
     exemplars = [r for r in any_use if roles.get(r, "exemplar") == "exemplar"]
+    def leader(scores: dict[str, int]) -> tuple[str | None, str]:
+        """The winner and how to say it -- `None` when nothing won.
+
+        `max()` on a tie returns whichever key it saw first, which here is
+        whatever the user typed as `--on`. That reads as a finding and is an
+        artefact of argument order: measured on the real corpus, two reference
+        codebases at one apiece were reported as favouring the first token.
+        A tie is a result, and the honest way to report it is as a tie.
+        """
+        best = max(scores.values(), default=0)
+        if not best:
+            return None, "no evidence"
+        winners = [t for t in scores if scores[t] == best]
+        if len(winners) > 1:
+            return None, "tied -- " + ", ".join(winners)
+        return winners[0], winners[0]
+
     if refs and len(tokens) > 1:
         corpus = {tok: sum(len(users[(r, tok)]) for r in refs) for tok in tokens}
-        favoured = max(corpus, key=corpus.get)
-        print(f"  corpus favours   {favoured}"
+        favoured, favoured_label = leader(corpus)
+        print(f"  corpus favours   {favoured_label}"
               f"   ({', '.join(f'{t} {corpus[t]}' for t in tokens)}"
               f" across {len(refs)} reference codebase(s))")
+
+        # The same question, counted by codebase instead of by module. One
+        # opinionated repository with a large example farm owns a module count
+        # outright -- `references/corpus.md` records the case where two React
+        # repositories said `useQuery` and four said `useState`. Telling the
+        # reader to remember that is weaker than measuring it, so both verdicts
+        # are printed and their disagreement is the finding.
+        votes = Counter()
+        for r in refs:
+            mine = {tok: len(users[(r, tok)]) for tok in tokens}
+            if any(mine.values()):
+                votes[max(mine, key=mine.get)] += 1
+        if votes:
+            by_repo, by_repo_label = leader(votes)
+            print(f"  by codebase      {by_repo_label}"
+                  f"   ({', '.join(f'{t} {votes[t]}' for t in tokens if votes[t])}"
+                  f" of {len(refs)} codebase(s))")
+            if by_repo is None or favoured is None or by_repo != favoured:
+                print(f"  SPLIT -- by module the corpus favours"
+                      f" {favoured_label}, by codebase {by_repo_label}."
+                      "\n    One repository's size is carrying the module"
+                      " count. The corpus does not settle"
+                      "\n    this; say so rather than quoting either verdict.")
+            elif max(votes.values()) < len(refs):
+                print(f"    not unanimous: {len(refs) - max(votes.values())}"
+                      f" of {len(refs)} codebase(s) go the other way")
+
         for ex in exemplars:
             mine = {tok: len(users[(ex, tok)]) for tok in tokens}
-            if any(mine.values()):
-                theirs = max(mine, key=mine.get)
-                verdict = ("agrees" if theirs == favoured
-                           else f"DISAGREES -- it uses {theirs}")
-                print(f"  {ex} {verdict}")
+            if not any(mine.values()):
+                continue
+            theirs, theirs_label = leader(mine)
+            if theirs is None:
+                verdict = f"uses both about equally ({theirs_label})"
+            elif favoured is None:
+                verdict = (f"uses {theirs} -- the corpus is tied, so there is"
+                           " nothing here to agree or disagree with")
+            elif theirs == favoured:
+                verdict = "agrees"
+            else:
+                verdict = f"DISAGREES -- it uses {theirs}"
+            print(f"  {ex} {verdict}")
 
     stale = [(tok, latest[(ex, tok)]) for ex in exemplars for tok in tokens
              if users.get((ex, tok)) and latest[(ex, tok)]]
@@ -1689,6 +2207,10 @@ def main(argv=None) -> int:
     p.set_defaults(fn=cmd_config)
 
     p = sub.add_parser("meta", help="what this index covers")
+    p.add_argument("--verify", action="store_true",
+                   help="also check that each shard holds the number of files "
+                        "its meta.json claims. An interrupted build could once "
+                        "leave a truncated shard and a confident summary")
     p.set_defaults(fn=cmd_meta)
 
     p = sub.add_parser("layers", help="what parts exist")
@@ -1721,6 +2243,10 @@ def main(argv=None) -> int:
     p = sub.add_parser("exemplars", help="the file to copy, and the outlier")
     add_filters(p)
     add_kind_and_tech(p)
+    p.add_argument("--include-target", action="store_true",
+                   help="rank the generated target's files too. Off by "
+                        "default: this command says what to copy, and copying "
+                        "your own output makes one mistake a convention")
     p.add_argument("-n", type=int, default=3)
     p.set_defaults(fn=cmd_exemplars)
 
@@ -1746,6 +2272,10 @@ def main(argv=None) -> int:
     p.add_argument("--repo", help="restrict to one repository")
     p.add_argument("--path", help="glob on the manifest path")
     p.add_argument("--on", metavar="NAME", help="who declares this package, and at what version")
+    p.add_argument("--references", action="store_true",
+                   help="include the reference corpus. Off by default: a "
+                        "package only a reference declares is not already "
+                        "paid for")
     p.add_argument("--limit", type=int, default=40)
     p.set_defaults(fn=cmd_deps)
 
@@ -1764,6 +2294,11 @@ def main(argv=None) -> int:
     p.add_argument("--repo", help="restrict the source side to one repository")
     p.add_argument("--target-path", required=True, help="glob selecting the generated layer")
     p.add_argument("--target-repo", help="restrict the target side to one repository")
+    add_kind_and_tech(p)
+    p.add_argument("--json", action="store_true",
+                   help="machine-readable result and nothing else, so this can "
+                        "run as a gate. `contract_empty` distinguishes 'nothing "
+                        "was broken' from 'nothing was checked'")
     p.set_defaults(fn=cmd_conform)
 
     p = sub.add_parser("questions", help="the decisions this layer forces, ranked by cost")
@@ -1783,6 +2318,8 @@ def main(argv=None) -> int:
                         "config.json decides how eagerly to ask, and in `many` "
                         "there is no cap: a question suppressed by a count "
                         "becomes a silent guess")
+    p.add_argument("--json", action="store_true",
+                   help="machine-readable result and nothing else")
     p.set_defaults(fn=cmd_questions)
 
     p = sub.add_parser("proof", help="how a codebase proves itself -- tests, entry points")
