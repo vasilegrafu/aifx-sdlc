@@ -63,8 +63,11 @@ size of a definition is a question the index can answer — which is what stops
 Both fields together cost about **9%** of index size, measured. That is the
 budget they have to earn, and the reason the answer to "should the index store
 more" is usually no: every query scans the whole file, so a field nobody reads
-is paid for by every query forever. There is a live example of that mistake —
-`doc` is written by the Python extractor and read by nothing.
+is paid for by every query forever. `doc` was such a field — a docstring summary
+in Python, and a hard-coded `null` in the three extractors that had nothing to
+put there — read by no command in any of them, and removed rather than given a
+reader. That it survived in four extractors at once is the point: a field nobody
+reads is copied forward by the next language without anyone deciding to.
 
 ## The mapping
 

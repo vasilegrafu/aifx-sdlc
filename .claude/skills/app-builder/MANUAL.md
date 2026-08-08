@@ -119,17 +119,18 @@ treated as absent.
 
 ## Quick start
 
-There is **one index**, and it holds every configured repository *plus* the
-solution — each in its own directory, under the role it was configured as.
-Holding them together is what makes `DISAGREEMENTS` possible. `index.py` has no
-per-repository filter; `query.py --repo` is where you narrow to one.
+There is **one index**, and it holds every configured *source* — the exemplars
+and the reference corpus, each in its own directory, under the role it was
+configured as. The solution is not in it (see Setup). Holding the sources
+together is what makes `DISAGREEMENTS` possible; `query.py --repo` is where you
+narrow to one.
 
 ```bash
-# 1. build the index: every configured repository, plus the solution
+# 1. build the index: every configured exemplar and reference
 ./.venv/Scripts/python.exe .claude/skills/app-builder/scripts/index.py
 
-# ... and after editing your own code, rebuild only that:
-#     index.py --only solution.university      (seconds, not minutes)
+# ... and after a source changes, rebuild only that one:
+#     index.py --only atlas          (seconds, not minutes)
 
 # 2. what is in there
 scripts/query.py families --depth 3
@@ -151,10 +152,11 @@ it has a subcommand that answers in a few hundred lines.
 ```
 .indexes/
   exemplar_corpus/atlas/     index.jsonl  meta.json
-  solution/<yours>/          index.jsonl  meta.json
   reference_corpus/django/   index.jsonl  meta.json
   meta.json                  the roll-up, recomputed every build
 ```
+
+A `solution/<yours>/` directory appears only under `index.py --with-solution`.
 
 **The role is the directory, not a field.** That is what holds references out of
 `shape`, `families`, `exemplars`, `questions` and `DISAGREEMENTS` — those commands
@@ -181,7 +183,7 @@ Everything else is navigation. This is the output that tells you what a family
 *is*:
 
 ```
-12 classes  (atlas 3, solution.university 9)   touched 2026-06 .. 2026-08
+12 classes  (atlas 3, orion 9)   touched 2026-06 .. 2026-08
 
 == BASE CLASSES ==
   ALWAYS   BaseDatabaseModel
@@ -195,9 +197,9 @@ Everything else is navigation. This is the output that tells you what a family
 == AGEING ==
   2023-01  methods: p  (16%)
 == DISAGREEMENTS ==
-   solution.university is the generated target, not another source.
-   Where it differs it has already decided, and it wins.
-  attributes: schema        atlas 3/3, solution.university 0/9
+   one repository always does this, another never does.
+   These are decisions, not averages. Ask before choosing.
+  attributes: schema        atlas 3/3, orion 0/9
 ```
 
 Read it as instructions, not as a report:
@@ -214,8 +216,9 @@ Read it as instructions, not as a report:
   line is the minority form, and is usually a real decision worth understanding.
 - **AGEING** — present, but only in files nobody has touched for a year. A
   pattern being abandoned still wins on file count. Do not copy these blindly.
-- **DISAGREEMENTS** — appears when the index holds more than one codebase. If
-  one side is your generated target, it has already decided and it wins.
+- **DISAGREEMENTS** — appears when the index holds more than one codebase. These
+  are decisions, not averages: ask before choosing. (Under `--with-solution`, if
+  one side is your generated target, it has already decided and it wins.)
 
 - **FUNCTIONS CALLED / CALLS ON A RECEIVER** — the family's vocabulary. For a
   data-model family this is a minor section; for anything built on a framework it is
@@ -733,6 +736,8 @@ nothing else repairs it, and nothing else will tell you.
   MANUAL.md                this file
   references/
     generating.md          how to read output closely; what to do when it conflicts
+    seams.md               reading a library apart from its application, and what
+                           a different database or runtime silently changes
     languages.md           per-language mapping, traps, and how to add one
     corpus.md              what is in the reference corpus, and why each one
   scripts/

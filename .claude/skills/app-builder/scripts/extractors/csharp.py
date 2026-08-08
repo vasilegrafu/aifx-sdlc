@@ -38,10 +38,18 @@ def available(root: Path | None = None) -> str | None:
 
 
 def _ensure_built() -> str | None:
-    """Build the adapter once. Returns a reason on failure, None on success."""
-    if ASSEMBLY.is_file():
+    """Build the adapter when it is missing or older than its source.
+
+    Existence alone was the test once, and it meant an edit to `Program.cs`
+    changed nothing: the cached assembly kept emitting the old records while the
+    source said otherwise, and no message anywhere said which one was running.
+    """
+    newest = max((p.stat().st_mtime for p in PROJECT.rglob("*.cs")
+                  if "bin" not in p.parts and "obj" not in p.parts), default=0.0)
+    if ASSEMBLY.is_file() and ASSEMBLY.stat().st_mtime >= newest:
         return None
-    print(f"  building the C# adapter (first run): {PROJECT.name}", file=sys.stderr)
+    why = "first run" if not ASSEMBLY.is_file() else "source changed"
+    print(f"  building the C# adapter ({why}): {PROJECT.name}", file=sys.stderr)
     try:
         proc = subprocess.run(
             ["dotnet", "build", "-c", "Release", "-v", "q", "--nologo", str(PROJECT)],

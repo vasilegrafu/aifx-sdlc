@@ -179,7 +179,6 @@ foreach (var entry in payload["files"]!.AsArray())
         // C# has no re-export file; a namespace is visible without one.
         ["exports"] = new JsonArray(),
         ["imports"] = usings,
-        ["doc"] = null,
     });
 
     foreach (var type in unit.DescendantNodes().OfType<TypeDeclarationSyntax>())
@@ -285,7 +284,6 @@ foreach (var entry in payload["files"]!.AsArray())
             ["end"] = span.EndLinePosition.Line + 1,
             ["attrs"] = attrs, ["assigns"] = assigns,
             ["methods"] = methods, ["nested"] = nested,
-            ["doc"] = null,
         };
         classes[key] = rec;
         order.Add(key);

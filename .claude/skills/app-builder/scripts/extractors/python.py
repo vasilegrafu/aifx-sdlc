@@ -23,12 +23,6 @@ FIDELITY = "ast"
 EXTENSIONS = (".py", ".pyi")
 
 
-def _summary(doc: str | None) -> str | None:
-    """First line of a docstring, or None. Docstrings may be empty or blank."""
-    lines = (doc or "").strip().splitlines()
-    return truncate(lines[0], 200) if lines else None
-
-
 def _name(node) -> str:
     try:
         return ast.unparse(node)
@@ -159,7 +153,6 @@ def _class(node: ast.ClassDef, mod: dict) -> dict:
         "assigns": assigns,
         "methods": methods,
         "nested": nested,
-        "doc": _summary(ast.get_docstring(node)),
     }
 
 
@@ -239,7 +232,6 @@ def index_file(path: Path, root: Path, repo: str, source: str,
         "commit": (commits or {}).get(relpath),
         "main": "__main__" in source,
         "imports": _imports(tree),
-        "doc": _summary(ast.get_docstring(tree)),
     }
     yield mod
 

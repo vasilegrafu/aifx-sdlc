@@ -282,7 +282,6 @@ for (const entry of files) {
     main: /\bcreateRoot\(|^#!/m.test(source),
     exports: [...new Set(exports.filter(Boolean))],
     imports,
-    doc: null,
   });
 
   const classRecord = (node, name) => {
@@ -306,7 +305,6 @@ for (const entry of files) {
       line: lineOf(node),
       end: endOf(node),
       attrs, assigns, methods, nested,
-      doc: null,
     };
   };
 

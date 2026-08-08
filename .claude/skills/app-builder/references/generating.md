@@ -5,18 +5,10 @@ settle on its own.
 
 Most worked examples below are Python, because that is where they were learned.
 Each has an analogue in the other three languages, and where the analogue is not
-obvious it is named. Two are worth knowing before you start:
-
-- **The unit of a family is not always a class.** A React component, a hook, a
-  route handler and most modern JavaScript are functions, and `shape --kind
-  class` describes a directory of forty of them as empty. Read a family with
-  `--kind func` when its members are functions, and remember that such a family's
-  contract lives almost entirely in what it *calls*.
-- **The registration chain has a different name in each language.** In Python it
-  is `__init__.py`, in TypeScript and JavaScript `index.ts` / `index.js`, and in
-  C# it is not a file at all — an unreferenced class compiles, and the same
-  failure appears as a service never added to the container. `imports --chain`
-  follows the first two; for the third, query the composition root.
+obvious it is named. When the unit of a family is a function rather than a class,
+`SKILL.md` step 3 says so and `--kind func` is the answer; what else differs per
+language — the registration chain, the proof commands — is in
+`references/languages.md`.
 
 ## Turning prose into a spec
 
@@ -45,52 +37,28 @@ if the family varies on that, it is worth one question.
 Restate the spec you extracted in one short block before generating. A wrong
 noun caught there costs a sentence; caught after generation it costs the pass.
 
-## Reading `shape` output closely
+## Two readings of `shape` that the count alone will not give you
 
-```
-== ATTRIBUTES ==
-  ALWAYS   id
-   87%    created_at
-  VARIES   instrument_id (43%), name (31%), symbol (12%)
-```
+`SKILL.md` step 3 says what each section means. These two are where a literal
+reading of the percentages gets it backwards.
 
-- `ALWAYS id` — every generated class has `id`, in the same form the exemplar
-  uses. Not "an identifier"; that form.
-- `87% created_at` — include it. If you leave it out, say so and why.
-- `VARIES instrument_id (43%)` — this is not a weak convention, it is a
-  **subfamily**: fewer than half the classes have a foreign key because fewer
-  than half the entities reference another. The percentage is describing the
-  domain, not a disagreement about style.
+**A recent minority beats an ageing majority.** Every row carries when it was
+last touched. A convention can hold its majority precisely because the files
+using it stopped changing, so when the majority form is ageing and the minority
+is recent, the minority is the convention and the majority is the fossil — say
+so and ask, rather than following the count.
 
-That last reading matters most. A `VARIES` row is usually a fork in the family,
-and the fork is what the request has to choose. Find which side it is on before
-generating, not while.
-
-## Percentages are not the whole signal
-
-Two things qualify every percentage above.
-
-**Dates.** Every row carries when it was last touched, and the `AGEING` section
-lists what has been in nothing for over a year. Count and currency disagree more
-often than people expect: a convention can hold a majority precisely because the
-files that use it stopped changing. When the majority form is ageing and the
-minority is recent, the minority is the convention and the majority is the
-fossil — say so and ask, rather than following the count.
-
-**Attribute detail.** `ALWAYS id` means the name is universal. It says nothing
-about the type, and a family that agrees on names while disagreeing on types has
-no contract worth copying. Read the `ATTRIBUTE DETAIL` section for what each
-attribute actually is:
+**The `also:` line is the decision row, not noise.**
 
 ```
   id  Mapped[UUID] 67%   mapped_column(Uuid, default, primary_key) 67%
       also: Mapped[str] x1; mapped_column(String(256), primary_key) x1
 ```
 
-Read that as: the default is a UUID surrogate key, and one entity uses a natural
-string key instead. Which is not noise — it is the decision row. An entity with
-a natural key of its own follows the minority; everything else follows the
-default. One `also:` line of this kind is worth more than any count on its own.
+The default is a UUID surrogate key and one entity uses a natural string key
+instead — so an entity with a natural key of its own follows the minority, and
+everything else follows the default. One `also:` line of that kind decides more
+than any count.
 
 ## When one codebase disagrees with itself
 

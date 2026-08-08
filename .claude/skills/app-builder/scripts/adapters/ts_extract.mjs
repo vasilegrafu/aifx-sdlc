@@ -172,7 +172,6 @@ function classRecord(node, src, mod, lang) {
     line: src.getLineAndCharacterOfPosition(node.getStart(src)).line + 1,
     end: endLine(node, src),
     attrs, assigns, methods, nested,
-    doc: null,
   };
 }
 
@@ -246,7 +245,6 @@ for (const entry of files) {
     mtime, commit,
     main: /\bcreateRoot\(|\brender\(|^#!/m.test(source),
     exports, imports,
-    doc: null,
   };
   out.push(mod);
 

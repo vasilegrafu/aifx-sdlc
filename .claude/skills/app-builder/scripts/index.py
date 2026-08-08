@@ -368,8 +368,6 @@ def main() -> int:
                     help="index the generated target too. Off by default: the "
                          "solution is the destination, not a source, and it "
                          "changes every time anything is generated into it")
-    ap.add_argument("--no-solution", action="store_true",
-                    help=argparse.SUPPRESS)   # the old spelling; now the default
     ap.add_argument("--no-references", action="store_true",
                     help="leave out the reference corpus (much faster to build)")
     ap.add_argument("--only", metavar="NAME[,NAME...]",

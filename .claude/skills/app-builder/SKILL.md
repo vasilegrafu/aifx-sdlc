@@ -254,67 +254,23 @@ imports through it; splitting it out would describe a codebase that is not the
 one on disk. `exclude` exists for the rare tree that genuinely is not source,
 and is not the tool for a linked library.
 
-## A library is not an exemplar
+## Two seams, and where they are written down
 
-A solution usually contains both the application and the library it is built on
-— often the linked directory above. They play different roles and must not be
-read the same way:
+Both live in `references/seams.md`. **Read it before step 3 if either applies**,
+because neither is visible in `shape` — to the exemplars they are not variables:
 
-- The **application** is what you copy. Its family is the thing being reproduced.
-- The **library** is what you call. You need its surface — what exists, what each
-  method takes — not its style.
-
-Separate them **at query time**, with `--path` to look inside one and
-`--not-path` to hold it out:
-
-```bash
-scripts/query.py families --not-path 'devfx/*'   # the application
-scripts/query.py find   --path 'devfx/database/*'  # what it calls
-```
-
-A `shape` run across both averages a library's conventions into an
-application's and produces a form neither one uses — the same error as averaging
-two codebases in step 6. Query-time separation keeps the index faithful to the
-solution while still letting you read one side at a time.
-
-## When the library is not there
-
-The application may not be able to reach the library its exemplars call. There
-are three answers, and the right one is rarely obvious:
-
-- **Link it**, as the source does — a junction or symlink into the other
-  repository. Highest fidelity, and the generated code stays identical to the
-  exemplar. The cost is that a linked directory carries no package metadata, so
-  **nothing declares its dependencies**: they have to be found by importing it
-  until it stops raising, and written down by hand.
-- **Reproduce its surface**, minimally — only the methods the generated code
-  calls, under the same names. Self-contained, and honest as long as it stays
-  small. It stops being honest the moment it grows behaviour of its own.
-- **Deviate**, and call the underlying framework directly. Cheapest, and it
-  breaks the contract `shape` reported. Only with the user's agreement.
-
-Say which one you took and why. All three are defensible; silently picking one
-is not.
-
-## The target is not the source's platform
-
-The contract has a platform baked into it, and the exemplars will not mention it
-because to them it is not a variable. Reproducing the contract faithfully onto a
-different database, runtime or operating system is where generated code fails —
-each failure looking like a different problem, all of them the same seam.
-
-Before generating, enumerate what the source assumes and the target does not:
-
-- **dialect-only DDL** — schemas, `IF EXISTS` forms, collations, identity
-- **isolation levels** the target rejects, including the source's default
-- **constraint enforcement that is off by default** — SQLite ignores foreign
-  keys unless every connection is told otherwise, so `ondelete='CASCADE'` is
-  declared and never enforced, and nothing errors until a row is orphaned
-- **types with no equivalent**, and how the source spells identity
-
-Each of these is a VARIES that the **target** settles, not the source. Reproduce
-what the contract means, not the SQL it happens to emit — and when you diverge,
-say so in the file, next to the line that diverges.
+- **The exemplar sits on a library** — a linked `devfx/`-style directory, or any
+  package the family calls into. The application is what you copy; the library is
+  what you call, and you need its surface, not its style. Reading them as one set
+  averages a library's conventions into an application's. Separate at query time
+  with `--path` / `--not-path`, and know the three answers for when the target
+  cannot reach the library at all.
+- **The target's platform is not the source's** — a different database, runtime
+  or operating system. Dialect-only DDL, isolation levels, types with no
+  equivalent, and constraint enforcement that is off by default: SQLite ignores
+  foreign keys unless every connection is told otherwise, so `ondelete='CASCADE'`
+  is declared, never enforced, and nothing errors until a row is orphaned. Each
+  is a VARIES the **target** settles, and each survives rungs 1 and 2 of step 8.
 
 ## The procedure
 
@@ -549,8 +505,9 @@ single glob matches both.
 2. **Structure** — flat or grouped, where the family lives, what the packages are
    called. Cheap to ask, expensive to change once imports exist.
 3. **Conventions** — whatever `questions` ranks for that family.
-4. **The platform seam** — what the source assumes and the target does not. The
-   *target* settles these, and the source cannot help.
+4. **The platform seam** — what the source assumes and the target does not, as
+   listed in `references/seams.md`. The *target* settles these, and the source
+   cannot help.
 5. **Wiring** — when step 5 reveals a chain with more than one reasonable shape.
 6. **After generating** — the numbered list in step 10.
 
@@ -690,14 +647,10 @@ primary_key=True)` is decided in a second when both are on screen, and argued
 about for a paragraph when they are described in prose. This is the same reason
 step 10 exists: people judge an artefact faster and better than a proposition.
 
-Nothing is recorded. There is no ledger of past answers, and that is deliberate:
-a saved answer suppresses the question next time, and the next generation is not
-the same generation. Ask, use the answer, and state it in the report at step 10 --
-where it stays visible in the code rather than in a file about the code.
-
-What *is* still read is the generated code itself. `--target-path` reports
-anything the target already answers instead of asking, because that is a fact
-you can look at rather than a decision someone saved.
+Nothing is recorded here either, for the reason given in step 1. Ask, use the
+answer, and state it in the report at step 10 — where it stays visible in the
+code rather than in a file about the code. What *is* read is the generated code
+itself, via `--target-path`: a fact you can look at, not a decision someone saved.
 
 Never average two codebases into a form neither one uses.
 
@@ -1021,8 +974,11 @@ the nearest family as a source of conventions instead.
 - `references/corpus.md` says what each reference codebase is for, the rule that
   decides what goes in -- index how a technology is *used*, not how it is
   implemented -- and the corpus's known gaps.
-- `references/generating.md` holds the detail: turning prose into a spec,
-  reading `shape` output closely, what to do when exemplars conflict inside one
-  codebase, why not to improve a signature that looks clumsy, why code that
-  works from one directory may work from nowhere else, and what you may honestly
-  claim to have proved.
+- `references/seams.md` holds the two seams named above: reading a library apart
+  from the application that calls it, what to do when the target cannot reach
+  that library, and what a different database or runtime silently changes.
+- `references/generating.md` holds the detail: turning prose into a spec, the two
+  readings of `shape` that the count alone gets backwards, what to do when
+  exemplars conflict inside one codebase, why not to improve a signature that
+  looks clumsy, why code that works from one directory may work from nowhere
+  else, and what you may honestly claim to have proved.
