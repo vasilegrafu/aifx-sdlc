@@ -428,6 +428,69 @@ once and the questions will be the wrong ones. Narrow it first.
 Run `shape` over the layer and read the `AGEING` section. Anything listed
 survives only in files nobody has touched for over a year.
 
+**What should I be asked before generating this layer?**
+
+```bash
+scripts/query.py decide --path 'database/*/models/*' --target-path 'database/models/*'
+```
+
+The one to run before generating. It gathers decisions from three places —
+forks inside your exemplar, things the corpus does that your exemplar never
+does, and decisions that leave no trace when nobody makes them — then attaches
+the evidence and the description to each.
+
+Anything the generated code already does is listed as **settled**, not asked.
+Anything with no catalogue entry shows its evidence and says so.
+
+`questions` and `alternatives` are still there and still do exactly what they
+did; `decide` is the two of them plus the catalogue, ranked together.
+
+**What decisions has my exemplar never even faced?**
+
+```bash
+scripts/query.py alternatives --path 'database/*/models/*'
+```
+
+`questions` can only raise something the exemplar does two ways, and `practice`
+needs you to already name both options. Neither can reach a choice the exemplar
+never made — and those are the expensive ones, because an absence leaves no
+record to rank. This reads the corpus for what other codebases use in the same
+kind of layer that yours does not.
+
+Four filters make it usable, and each was added because the raw output was not:
+
+- **Structural positions only** — imports, attribute constructors, base classes,
+  decorators. Counting every call produced `dict`, `str` and `split`.
+- **Library vocabulary only** — a candidate must be imported from an installed
+  package. Without this, one codebase's own `UserBase` looks like an offer.
+- **The same kind of layer** — reference files under a directory or module named
+  like yours. Without this a models layer is offered `create_async_engine`.
+  `--ref-path` when the names differ, as `elements` and `components` do.
+- **Frequency inside that layer** (`--min-share`, default 25%) — this is what
+  separates a decision from a catalogue entry. `Column` appears in 100% of the
+  model files of the codebases that use it; `Divider` in a few per cent of MUI's
+  demos. Both are "used by two codebases"; only one is a question.
+
+Where a candidate has an entry in `references/catalogue.toml`, its description
+is printed with it — what it is, what it buys, what it costs, and when it's the
+right answer. That half cannot be computed from an index, so it is written once
+and reused; a candidate with no entry still shows its evidence and says the
+description is missing rather than inventing one.
+
+**Adding an entry** is the way this gets better over time. Rules, enforced by
+`selftest.py`: name a failure rather than a preference, always give a
+disadvantage, and always say when the option *is* right — that last is what
+makes options comparable instead of merely different. An entry is reached
+either by `tokens` (names `alternatives` finds) or by `detect` (a decision
+nothing imports, like timestamps, which leaves no token to find).
+
+It also prints the mirror: what **your** layer uses that no reference codebase
+does. Not wrong — it may be your own vocabulary — but worth seeing once.
+
+Its usefulness depends on the layer. For SQLAlchemy models the corpus holds
+real forks. For a component library the vocabulary is mostly a widget
+catalogue, and the honest answer there is thin.
+
 **Is this still how anyone builds it?**
 
 `AGEING` answers that within one codebase. It cannot tell you the codebase is
@@ -502,6 +565,8 @@ Filters marked ● are shared by `find`, `shape`, `exemplars`, `imports` and
 | `conform` | whether generated code still keeps the source's contract. Takes `--kind func` and `--tech`, so a component or hook layer can be checked too |
 | `proof` | how a codebase proves itself — test config, test dirs, entry points, interpreter |
 | `questions` | the decisions this layer forces, ranked by what they cost to get wrong |
+| `decide` | **every** decision this layer forces, with options, evidence, price and what each one means. Composes `questions`, `alternatives` and the catalogue |
+| `alternatives` | what the corpus does in this kind of layer that yours never does — the decisions your exemplar never faced |
 | `practice --on T --versus T` | how the reference corpus resolves a choice, against how your exemplar resolves it |
 | `deps` | what the exemplars and the target declare they depend on and run; `--on NAME` for who declares a package; `--references` widens to the corpus |
 
@@ -722,6 +787,7 @@ nothing else repairs it, and nothing else will tell you.
   SKILL.md                 the procedure Claude follows
   MANUAL.md                this file
   references/
+    catalogue.toml         what each decision means -- the half no index computes
     generating.md          how to read output closely; what to do when it conflicts
     languages.md           per-language mapping, traps, and how to add one
     decisions.md           decisions a layer faces that the source never made

@@ -1,0 +1,289 @@
+# The meaning of a decision, written once and reused.
+#
+# `alternatives` finds *that* the corpus does something your exemplar does not.
+# It cannot say what the thing means, what it buys, or what it costs -- no index
+# can, because that is judgement rather than structure. This file holds the
+# judgement, keyed so a command can find it.
+#
+# The division of labour is the point:
+#
+#   computed, every time      counts, dates, which codebases, price, fidelity
+#   written once, here        what it is, advantage, disadvantage, when it fits
+#
+# Entries are keyed by **decision, not token**. `SQLModel`, `Field` and
+# `Relationship` are one choice arriving as three names, and three near-identical
+# questions would be worse than one good one.
+#
+# Two ways an entry is reached:
+#
+#   tokens = [...]    the names `alternatives` discovers in the corpus
+#   detect = {...}    a decision nothing imports -- an absence, which leaves no
+#                     token behind and so can only be found by looking for its
+#                     shape. `decide` implements these; the format is here.
+#
+# Rules for writing one:
+#
+# - Name a failure, not a preference. "Less clean" is not a disadvantage;
+#   "a bulk load can write a duplicate" is.
+# - `right_when` is what makes options comparable rather than merely different.
+#   An option with no circumstance that favours it is not an option.
+# - Every entry needs a disadvantage. One without has not been thought about.
+# - Say the blast radius when accepting the change is expensive.
+
+schema = 1
+
+# ---------------------------------------------------------------- data layer
+
+[[decision]]
+id = "sqlalchemy-2-mapped-column"
+tokens = ["Column"]
+technology = "sqlalchemy"
+title = "legacy Column() instead of mapped_column()"
+what = """Declare columns with `Column(...)` and no `Mapped[...]` annotation, the
+pre-2.0 style, rather than `Mapped[T] = mapped_column(...)`."""
+advantage = "Shorter, and it is what most SQLAlchemy material on the internet shows."
+disadvantage = """The attribute has no type the checker can see, so nothing catches
+a `str` assigned to an integer column, and editors cannot complete off a model."""
+right_when = """The codebase has no type checking to speak of, or is being kept
+deliberately consistent with a large body of pre-2.0 code."""
+versus = ["mapped_column"]
+note = """Read this one from the rows, not the verdict. `sqlalchemy-examples` keeps
+legacy examples on purpose, for people migrating; the only real application in the
+corpus is 92% `mapped_column`. `practice --on mapped_column --versus Column` prints
+SPLIT for exactly this reason."""
+
+[[decision]]
+id = "sqlmodel"
+# `Field` deliberately not listed. Pydantic has one too, so claiming it made a
+# pydantic API layer report a SQLModel decision -- a token generic enough to
+# belong to two libraries identifies neither.
+tokens = ["SQLModel", "SQLModelMetaclass"]
+technology = "sqlalchemy"
+title = "SQLModel instead of SQLAlchemy declarative models"
+what = """One class is both the ORM model and the pydantic schema. `SQLModel`
+replaces the declarative base, `Field()` replaces `mapped_column()`."""
+advantage = """The model and the API schema cannot drift apart, because they are the
+same class. Materially less code in a small CRUD application."""
+disadvantage = """They stop being the same thing the moment the API needs a shape the
+table does not have -- a computed field, a hidden column, a different view per
+role -- and unpicking one class into two later is invasive. It is also a third
+library tracking two moving upstreams."""
+right_when = """The API is a thin projection of the tables and you expect it to stay
+that way."""
+blast_radius = "Changing this later touches every model and every endpoint."
+
+[[decision]]
+id = "association-proxy"
+tokens = ["AssociationProxy", "association_proxy"]
+technology = "sqlalchemy"
+title = "association_proxy across a link table"
+what = """Expose the far side of a many-to-many directly -- `student.subjects`
+rather than `student.enrolments[i].subject`."""
+advantage = """Callers stop knowing the link table exists, which is usually what they
+want, and it reads the way the domain is described."""
+disadvantage = """It hides where the extra row comes from, so writes through the proxy
+surprise people, and it is another layer to understand when a query is slow."""
+right_when = """The link table is pure plumbing with no attributes of its own. If the
+enrolment carries a date or a grade, it is an entity and should be visible."""
+
+[[decision]]
+id = "audit-base"
+tokens = ["UUIDv7AuditBase", "AuditColumns"]
+technology = "sqlalchemy"
+title = "a shared audit base carrying id and timestamps"
+what = """Models inherit `created_at`, `updated_at` and a primary key from one base
+class instead of declaring them per model."""
+advantage = """The columns cannot drift between models, and adding a new one is a
+single edit rather than a sweep."""
+disadvantage = """Every model gets them whether or not it wants them, and the base
+becomes a place changes are risky to make."""
+right_when = "Once the same three columns have appeared on every model anyway."
+
+[[decision]]
+id = "uuid-key-ordering"
+tokens = ["UUIDv7AuditBase", "uuid7", "ULID"]
+technology = "sqlalchemy"
+title = "time-ordered keys instead of random uuid4"
+what = "UUIDv7 or ULID primary keys, which sort by creation time."
+advantage = """Inserts land at the end of the index instead of scattering across it,
+which keeps the B-tree compact and the cache warm."""
+disadvantage = """The key leaks approximate creation time, and it is one more
+dependency for something a random UUID already does correctly."""
+right_when = """Millions of rows, or an insert-heavy table. Invisible below that --
+name the row count before raising it."""
+
+[[decision]]
+id = "encrypted-columns"
+tokens = ["EncryptedText", "EncryptedString"]
+technology = "sqlalchemy"
+title = "encryption at the column level"
+what = "A column type that encrypts on write and decrypts on read."
+advantage = """The value is unreadable in a dump, a backup or a replica, which is
+often what a data protection requirement actually asks for."""
+disadvantage = """You cannot index it, search it, or sort by it, and losing the key
+loses the data. Key rotation becomes a migration."""
+right_when = """A specific field is genuinely sensitive and is never queried -- a
+national insurance number, not an email address you look people up by."""
+
+[[decision]]
+id = "json-column"
+tokens = ["JSON", "JSONB"]
+technology = "sqlalchemy"
+title = "a JSON column instead of columns"
+what = "Store a structured blob in one column rather than modelling its fields."
+advantage = "Shape can change without a migration; good for genuinely open-ended data."
+disadvantage = """Nothing constrains it, so every reader must tolerate every past
+shape, and querying inside it is dialect-specific -- SQLite and Postgres do not
+agree, which matters if you develop on one and deploy on the other."""
+right_when = """The contents are opaque to the database: a payload you store and hand
+back, settings nobody filters on."""
+
+[[decision]]
+id = "validated-types"
+tokens = ["EmailStr", "AnyUrl", "constr"]
+technology = "pydantic"
+title = "validated scalar types rather than plain str"
+what = "Types that reject malformed values at the boundary -- `EmailStr` over `str`."
+advantage = """Bad data is refused where it enters, once, instead of being checked in
+each of the places that later assume it is well formed."""
+disadvantage = """The rule now lives in the type, so loosening it means finding every
+use, and a validator stricter than reality rejects legitimate input."""
+right_when = "The format is genuinely fixed and you control what gets stored."
+
+# --- absences: nothing imports these, so no token can find them -------------
+
+[[decision]]
+id = "relationships"
+detect = { any_attr_call = ["relationship"] }
+technology = "sqlalchemy"
+title = "ORM relationships alongside foreign keys"
+what = """`relationship()` beside the foreign key, so `enrolment.student` navigates
+without a manual join."""
+advantage = """Callers traverse the domain instead of writing joins, and the UI layer
+will want this immediately."""
+disadvantage = """Lazy loading issues queries where you did not write one -- the N+1
+problem -- and objects detach when the session closes."""
+right_when = """Almost always, once anything reads the data. A foreign key alone gives
+the database navigation and gives your code none."""
+
+[[decision]]
+id = "delete-behaviour"
+detect = { any_attr_kw = ["ondelete"] }
+technology = "sqlalchemy"
+title = "what happens to children when a parent is deleted"
+what = "`ondelete` on the foreign key: CASCADE, RESTRICT, SET NULL -- or a soft delete."
+advantage = "The rule is enforced by the database, so nothing can bypass it."
+disadvantage = """CASCADE is silent and irreversible: deleting a pupil can remove four
+years of academic records and nothing asks first."""
+right_when = """The domain decides, never the source. RESTRICT where records matter,
+CASCADE only where the child is meaningless without its parent."""
+blast_radius = "Discovering this was wrong usually means the data is already gone."
+
+[[decision]]
+id = "timestamps"
+detect = { any_attr_name = ["created_at", "updated_at", "created", "modified"] }
+technology = "sqlalchemy"
+title = "created_at / updated_at"
+what = "When the row appeared, and when it last changed."
+advantage = """Cheap now, and the first question asked of any production incident.
+Unanswerable afterwards -- the information does not exist retroactively."""
+disadvantage = "Two more columns on every table, and a decision about clock source."
+right_when = """Nearly always. The exception is a table that is fully rewritten from
+an upstream source each run."""
+
+[[decision]]
+id = "constraints-beyond-keys"
+detect = { any_import = ["UniqueConstraint", "CheckConstraint"] }
+technology = "sqlalchemy"
+title = "uniqueness and check constraints in the schema"
+what = "`__table_args__` carrying `UniqueConstraint` or `CheckConstraint`."
+advantage = """The database refuses bad rows whatever writes them -- a migration, a
+bulk load, a second service, a person with a SQL client."""
+disadvantage = """Adding one later needs a migration and fails loudly if existing rows
+already violate it, which is often how you learn they do."""
+right_when = """The rule is genuinely invariant. A rule enforced only in application
+code is a rule that is not enforced."""
+
+[[decision]]
+id = "optimistic-concurrency"
+detect = { any_attr_name = ["version", "version_id", "row_version"] }
+technology = "sqlalchemy"
+title = "a version column"
+what = "A counter SQLAlchemy checks on update, via `__mapper_args__`."
+advantage = "Two people editing one record cannot silently overwrite each other."
+disadvantage = """Callers must handle a conflict they previously never saw, so every
+save path grows a branch."""
+right_when = "Anything a human edits through a form and might have open twice."
+
+[[decision]]
+id = "server-defaults"
+detect = { any_attr_kw = ["server_default"] }
+technology = "sqlalchemy"
+title = "server_default rather than a Python default"
+what = "The default is in the schema, not in the model class."
+advantage = """It applies to rows written by anything -- a migration, a bulk load,
+another service -- not only by this application."""
+disadvantage = """The value is not visible on the object until it is refreshed from
+the database, which surprises code that reads it straight after creating."""
+right_when = "Anything but this application will ever insert a row."
+
+[[decision]]
+id = "migrations"
+detect = { any_import = ["alembic", "op"] }
+technology = "sqlalchemy"
+title = "schema migrations"
+what = "Alembic revisions describing each schema change."
+advantage = """A schema change with data already in the table is possible at all.
+Without it the only route is drop and recreate."""
+disadvantage = """Every change becomes two artefacts that can disagree, and a
+generated revision still needs reading before it is trusted."""
+right_when = """Before anything ships. Absence of migrations is usually an oversight
+rather than a decision, and it is discovered on the first day of production."""
+
+# ------------------------------------------------- controller / API layer
+
+[[decision]]
+id = "session-per-request"
+layer = "controllers"
+detect = { any_param = ["session"] }
+technology = "sqlalchemy"
+title = "where the transaction begins and ends"
+what = """Whether the caller opens a session and passes it in, or each controller
+call opens its own."""
+advantage = """A session per request lets two calls share one transaction, so a
+half-finished operation rolls back as a unit."""
+disadvantage = """It has to be threaded through everything, and the lifetime becomes
+something callers must understand."""
+right_when = """As soon as one request does two writes. Session-per-call cannot roll
+those back together, and objects it returns are detached -- touching a
+relationship afterwards raises."""
+
+[[decision]]
+id = "failure-signalling"
+layer = "webapi"
+detect = { any_import = ["HTTPException", "status"] }
+technology = "fastapi"
+title = "HTTP status codes vs 200 with an error in the body"
+what = "How a failed call is signalled to the client."
+advantage = """Status codes are understood by every proxy, retry policy, monitor and
+generic client without being taught."""
+disadvantage = """Errors carrying detail need a documented body shape as well, so
+there are two things to keep consistent instead of one."""
+right_when = """Always, unless a client you cannot change already depends on the
+other. A 200 carrying an error is invisible to everything generic, and it gets
+worse as infrastructure is added."""
+
+[[decision]]
+id = "read-verb"
+layer = "webapi"
+detect = { any_decorator = ["app.get", "router.get"] }
+technology = "fastapi"
+title = "GET or POST for reads"
+what = "Whether a read endpoint is a GET or a POST carrying a query body."
+advantage = """GET is cacheable, linkable, retryable and works from a browser address
+bar. POST takes a structured query without URL length limits."""
+disadvantage = """POST-for-reads loses all of the above, and caches and proxies must
+be told the call is safe when they cannot infer it."""
+right_when = """POST when the query genuinely is a document -- a complex filter. GET
+for everything else."""
+blast_radius = "Changing this after clients exist rewrites every one of them."

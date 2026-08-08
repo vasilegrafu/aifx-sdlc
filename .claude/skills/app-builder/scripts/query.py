@@ -36,9 +36,11 @@ import fnmatch
 import json
 import re
 import shutil
+import sys
 from collections import Counter, defaultdict
 
-from _common import (configured_questions, configured_references,
+from _common import (catalogue_by_token, configured_questions,
+                     configured_references, load_catalogue,
                      configured_repositories, configured_solution, corpus_root,
                      INDEX_SCHEMA, ROLE_DIRS, ROLE_ORDER,
                      display_path, find_files, index_meta, index_root,
@@ -1564,6 +1566,20 @@ def cmd_questions(args):
     # The same fact travels inside the document, as `stale`.
     if not getattr(args, "json", False):
         warn_if_stale()
+    ranked, by_code = rank_decisions(args, recs)
+    asked = [c for c in ranked if c[1] not in by_code][: args.limit]
+    total = len(recs)
+    return _print_questions(args, recs, ranked, by_code, asked, total)
+
+
+def rank_decisions(args, recs) -> tuple[list, dict]:
+    """`(ranked, settled_by_code)` -- the forks this layer forces.
+
+    Lifted out of `cmd_questions` so `decide` can rank the same way rather than
+    ranking its own way. Two rankings of the same layer that disagree would be
+    worse than either, and the scoring here is the part with judgement baked
+    into it: what a decision costs to get wrong.
+    """
     total = len(recs)
     per_repo = Counter(r["repo"] for r in recs)
     target = configured_solution()["name"]
@@ -1641,8 +1657,10 @@ def cmd_questions(args):
     # nothing to ask -- reading it back is cheaper than a question, and asking
     # anyway invites the user to re-decide what they already decided.
     by_code = target_settled(args, ranked)
-    asked = [c for c in ranked if c[1] not in by_code][: args.limit]
+    return ranked, by_code
 
+
+def _print_questions(args, recs, ranked, by_code, asked, total):
     if getattr(args, "json", False):
         # The decisions, with the numbers that justify each one. `--limit`
         # still applies: what is below the line is decided and stated rather
@@ -2110,6 +2128,561 @@ def _mentions(rec, tokens: set[str]) -> set[str]:
     return hit
 
 
+STDLIB = frozenset(getattr(sys, "stdlib_module_names", ())) | {
+    # Not Python, and the same reasoning applies: a name from the runtime or
+    # the language is not a design decision anybody made.
+    "react", "node", "fs", "path", "os", "util",
+}
+
+
+def library_imports(rec) -> dict[str, str]:
+    """`{name: module}` for names imported from an installed package.
+
+    The discriminator between *library vocabulary* and *this project's own
+    nouns*, and the whole reason the second round of noise went away. A base
+    class is a structural position, so `UUIDv7AuditBase` and `UserBase` look
+    identical in the index -- one is an audit base offered by a library and the
+    other is fastapi-fullstack's own domain model. What separates them is where
+    the name came from: an installed package, or a relative import.
+
+    The standard library is excluded too. `datetime`, `Optional` and `UUID` are
+    imported from real modules and are not decisions about a layer.
+    """
+    out = {}
+    for imp in rec.get("imports") or ():
+        mod = (imp.get("mod") or "").strip()
+        name = imp.get("name")
+        if not name or name == "*" or not mod or mod.startswith("."):
+            continue
+        root = mod.replace("/", ".").split(".")[0].lstrip("@")
+        if root in STDLIB:
+            continue
+        out[imp.get("as") or name] = mod
+    return out
+
+
+def structural_tokens(rec, imported: dict[str, str]) -> set[str]:
+    """The names in a record that represent a *decision*, not incidental code.
+
+    Two rounds of noise shaped this, and both are worth recording because each
+    looked like signal until it was measured.
+
+    First: collecting every call in every method body produced `dict`, `str`,
+    `split` and `now` beside `UniqueConstraint`. Only four positions are kept
+    now -- imported names, attribute constructors, base classes and decorators
+    -- because each is something somebody chose rather than something they
+    wrote.
+
+    Second: that still admitted `ItemBase` and `UserBase`, one codebase's own
+    domain models, because a base class is a structural position whoever
+    declared it. So a token must additionally be *imported from an installed
+    package*: library vocabulary counts, local nouns do not.
+    """
+    out = set(imported)
+    for a in rec.get("attrs") or ():
+        if a.get("call"):
+            out.add(symbol_root(a["call"]))
+    for b in rec.get("bases") or ():
+        out.add(symbol_root(b))
+    for d in rec.get("decorators") or ():
+        out.add(symbol_root(d))
+    for m in rec.get("methods") or ():
+        for d in m.get("decorators") or ():
+            out.add(symbol_root(d))
+    return {t for t in out
+            if t and not t.startswith("_") and t in imported}
+
+
+def describe(entry: dict, indent: str = "        ") -> None:
+    """Print a catalogue entry's prose, wrapped rather than truncated.
+
+    Wrapped because the whole request was for questions that are *verbose and
+    clearly described*, and a description cut at 200 characters answers a
+    different one. These lines are the only part of the output a person reads
+    for meaning rather than for numbers.
+    """
+    import textwrap
+
+    rows = [("what", entry["what"]), ("advantage", entry["advantage"]),
+            ("disadvantage", entry["disadvantage"]),
+            ("right when", entry["right_when"])]
+    if entry.get("blast_radius"):
+        rows.append(("blast radius", entry["blast_radius"]))
+    if entry.get("note"):
+        rows.append(("note", entry["note"]))
+    pad = 14
+    for label, text in rows:
+        body = " ".join(str(text).split())
+        wrapped = textwrap.wrap(body, width=88 - len(indent) - pad) or [""]
+        print(f"{indent}{label:<{pad}}{wrapped[0]}")
+        for line in wrapped[1:]:
+            print(f"{indent}{'':<{pad}}{line}")
+
+
+def compute_alternatives(args):
+    """What the reference corpus does in this kind of layer that yours never does.
+
+    The gap this fills is the one nothing else can reach. `questions` ranks
+    what the exemplar does two ways, so it can only raise a decision the
+    exemplar already had. `practice` compares two options you name, so you must
+    already know the alternative exists. Neither can tell you about a choice
+    the exemplar never faced -- and those are the expensive ones, because an
+    absence leaves no record to rank.
+
+    Evidence only, and deliberately so. This says what other codebases do and
+    when; it does not say whether you should. A corpus of two dozen is enough
+    to show a choice is contested and nowhere near enough to settle it.
+    """
+    roles = indexed_roles()
+    prefixes_for = lambda t: TECHNOLOGIES.get(t, ())
+
+    # One pass. Tokens and technology are properties of a file, and the file's
+    # module record carries the imports while its classes carry the rest, so
+    # both are accumulated per (repo, path) before anything is filtered.
+    tech: dict[tuple, set] = defaultdict(set)
+    raw_imports: dict[tuple, dict] = defaultdict(dict)
+    latest: dict[tuple, int] = {}
+    raw: list[tuple] = []
+    # Every dotted form a repository's own modules can be imported by. A
+    # project importing itself absolutely -- `from app.db.models import User`
+    # -- looks exactly like importing a library, and `User` then arrives as a
+    # candidate alternative when it is one codebase's domain noun. Comparing
+    # against the repository's real module paths is what tells them apart.
+    own: dict[str, set] = defaultdict(set)
+    for rec in read_index(include_references=True):
+        key = (rec.get("repo"), rec.get("path", ""))
+        if rec.get("k") == "module":
+            tech[key] |= technologies_of(rec.get("imports"))
+            raw_imports[key].update(library_imports(rec))
+            dotted = re.sub(r"\.(py|pyi|ts|tsx|js|jsx|mjs|cjs|cs)$", "",
+                            key[1]).replace("/", ".")
+            dotted = dotted[: -len(".__init__")] if dotted.endswith(".__init__") else dotted
+            # Suffixes of two segments or more, never one.
+            #
+            # A single segment collides with the real world, and atlas is the
+            # worked example: it contains `database/sqlalchemy/`, so a
+            # one-segment suffix taught this that every `from sqlalchemy
+            # import ...` was atlas importing itself. The layer's own
+            # vocabulary collapsed from 21 tokens to 4 and the command began
+            # offering `String` and `ForeignKey` as things atlas had never
+            # thought of. `generating.md` warns about naming a package after a
+            # dependency; this is that hazard reaching the reader instead.
+            parts = dotted.split(".")
+            for i in range(len(parts) - 1):
+                own[key[0]].add(".".join(parts[i:]))
+        tech[key] |= markup_technologies_of(rec)
+        if rec.get("k") in ("module", "class", "func"):
+            raw.append((key, rec))
+            latest[key] = max(latest.get(key, 0), stamp(rec))
+
+    imports = {k: {name: mod for name, mod in m.items()
+                   if mod not in own.get(k[0], ())}
+               for k, m in raw_imports.items()}
+
+    # Which technology this layer is built on decides which imports count.
+    # Inferred from the layer itself unless named, because a layer that reaches
+    # for SQLAlchemy should not be offered React's vocabulary.
+    layer_keys = [k for k in tech
+                  if roles.get(k[0], "exemplar") == "exemplar"
+                  and (not args.repo or k[0] == args.repo)
+                  and (not args.path or fnmatch.fnmatch(k[1], args.path))]
+    if not layer_keys:
+        return print("nothing matched --path/--repo among the exemplars")
+    if args.tech:
+        technology = args.tech
+    else:
+        counted = Counter(t for k in layer_keys for t in tech[k])
+        technology = counted.most_common(1)[0][0] if counted else None
+    prefixes = prefixes_for(technology) if technology else ()
+
+    # Which reference files count as "the same kind of layer".
+    #
+    # Technology alone is not enough, and the first run proved it: a models
+    # layer compared against every SQLAlchemy file in the corpus came back
+    # recommending `create_async_engine`, `async_sessionmaker`, `pool` and
+    # `joinedload` -- session setup and query vocabulary, offered as
+    # alternatives for declaring a column. True of the technology, irrelevant
+    # to the layer.
+    #
+    # The fixed segments of `--path` are the layer's name, and reference
+    # codebases name their layers the same way far more often than not:
+    # `models`, `controllers`, `components`, `schemas`. So `*/models/*` looks
+    # for references under a directory called `models`.
+    hint = tuple(seg for seg in (args.path or "").split("/")
+                 if seg and not any(c in seg for c in "*?[")) if not args.ref_path else ()
+    ref_glob = args.ref_path
+
+    # A layer is named in three shapes and all three are ordinary: a directory
+    # (`app/db/models/user.py`), a module (`app/models.py`), and the singular
+    # of either (`dogpile_caching/model.py`). Matching only the directory found
+    # one codebase out of three and then reported, with the threshold applied,
+    # that the corpus had nothing to say -- an absence produced by the matcher
+    # rather than by the corpus, which is the worst kind.
+    accepted = set()
+    for seg in hint:
+        low = seg.lower()
+        accepted |= {low, low.rstrip("s"), low + "s"}
+
+    def is_same_layer(path: str) -> bool:
+        if ref_glob:
+            return fnmatch.fnmatch(path, ref_glob)
+        if not accepted:
+            return True
+        for part in path.lower().split("/"):
+            stem = part.rsplit(".", 1)[0] if "." in part else part
+            if part in accepted or stem in accepted:
+                return True
+        return False
+
+    layer_set = set(layer_keys)
+    mine, mine_elsewhere = set(), set()
+    theirs: dict[str, set] = defaultdict(set)
+    token_seen: dict[str, int] = defaultdict(int)
+    # How much of a codebase's own layer uses a token, which is what separates
+    # a decision from a catalogue entry. A models layer's vocabulary encodes
+    # choices -- `Column` against `mapped_column` -- and a component library's
+    # is a list of widgets. Measured on this corpus: `Column` appears in every
+    # model file of the codebase that uses it, while `Divider` appears in a few
+    # per cent of MUI's demos. Both are "used by 2 codebases"; only one is a
+    # question. Frequency inside the layer tells them apart, and it is taken as
+    # the *best* share rather than the average, because one large repository
+    # would otherwise drown a small emphatic one.
+    ref_files: dict[str, int] = defaultdict(int)
+    per_repo_files: dict[tuple, int] = defaultdict(int)
+    token_module: dict[str, str] = {}
+    for key, rec in raw:
+        role = roles.get(key[0], "exemplar")
+        if args.lang and language_of(rec) != args.lang:
+            continue
+        found = structural_tokens(rec, imports.get(key, {}))
+        if not found:
+            continue
+        if key in layer_set:
+            mine |= found
+        elif role == "exemplar":
+            mine_elsewhere |= found
+        elif role == "reference":
+            # Only references built on the same technology. A React demo has
+            # nothing to say about a SQLAlchemy layer, and counting it would
+            # make every verdict an average of the whole corpus.
+            if technology and technology not in tech[key]:
+                continue
+            if not is_same_layer(key[1]):
+                continue
+            ref_files[key[0]] += 1
+            for t in found:
+                theirs[t].add(key[0])
+                per_repo_files[(t, key[0])] += 1
+                token_seen[t] = max(token_seen[t], latest.get(key, 0))
+                # Which package the name comes from. Pricing an option means
+                # asking whether a *dependency* is already paid for, and
+                # `Column` is not a package -- looking it up by symbol reports
+                # that nothing declares it while `sqlalchemy` sits in every
+                # manifest involved.
+                token_module.setdefault(t, imports.get(key, {}).get(t, ""))
+
+    def best_share(tok, repos) -> int:
+        return max((pct(per_repo_files[(tok, r)], ref_files[r])
+                    for r in repos if ref_files[r]), default=0)
+
+    candidates = [(len(repos), best_share(tok, repos), tok, repos)
+                  for tok, repos in theirs.items()
+                  if tok not in mine and len(repos) >= args.min_repos]
+    candidates = [c for c in candidates if c[1] >= args.min_share]
+    candidates.sort(key=lambda c: (-c[0], -c[1], -token_seen[c[2]], c[2]))
+    return {"candidates": candidates, "mine": mine, "theirs": theirs,
+            "mine_elsewhere": mine_elsewhere, "technology": technology,
+            "layer_files": len(layer_keys), "token_seen": token_seen,
+            "token_module": token_module,
+            "references": sum(1 for r in roles.values() if r == "reference")}
+
+
+def cmd_alternatives(args):
+    """Print what `compute_alternatives` found. See it for the method."""
+    found = compute_alternatives(args)
+    if found is None:
+        return
+    candidates = found["candidates"]
+    mine, mine_elsewhere = found["mine"], found["mine_elsewhere"]
+    technology, token_seen = found["technology"], found["token_seen"]
+    theirs = found["theirs"]
+
+    label = args.path or "every exemplar"
+    print(f"alternatives for {label}"
+          + (f"   built on {technology}" if technology else "   (no technology detected)"))
+    print(f"  {found['layer_files']} file(s) in the layer, {len(mine)} structural"
+          f" token(s) it uses\n")
+    if not technology:
+        print("  NOTE: no technology detected, so imports are unfiltered and this"
+              "\n  will be noisy. Name one with --tech.\n")
+
+    if not candidates:
+        print(f"  nothing the corpus does here that this layer does not, at"
+              f" >= {args.min_repos} codebases.")
+    else:
+        print(f"  USED BY THE CORPUS, NOT BY THIS LAYER   (>= {args.min_repos}"
+              f" codebase(s))")
+        print("   Each is a decision this layer never faced, so nothing else"
+              " can raise it.\n")
+        described = catalogue_by_token()
+        shown: set[str] = set()
+        for n, share, tok, repos in candidates[: args.limit]:
+            where = ("also used elsewhere in the exemplars"
+                     if tok in mine_elsewhere else "nowhere in the exemplars")
+            print(f"  {n:>2} codebase(s)  {tok:<26} up to {share:>3}% of their"
+                  f" files   last {when(token_seen[tok])}")
+            print(f"      {', '.join(sorted(repos)[:6])}   -- {where}")
+            # The evidence above is measured; this is the part no index can
+            # produce. Printed once per decision rather than once per token,
+            # because `SQLModel`, `Field` and `Relationship` are one choice
+            # and three copies of its description would be three questions.
+            entry = described.get(tok)
+            if entry and entry["id"] not in shown:
+                shown.add(entry["id"])
+                print(f"      {entry['title']}")
+                describe(entry)
+            elif not entry:
+                print("        (no description in references/catalogue.toml --"
+                      " evidence only)")
+        if len(candidates) > args.limit:
+            print(f"  ... {len(candidates) - args.limit} more (--limit)")
+
+    # The mirror image, and it is a different question: not "what are we
+    # missing" but "what are we alone in doing". An exemplar standing by itself
+    # is worth knowing about before it is reproduced.
+    alone = sorted(t for t in mine if t not in theirs)
+    if alone:
+        print(f"\n  USED BY THIS LAYER, BY NO REFERENCE CODEBASE ({len(alone)})")
+        print("   Not wrong -- it may be this codebase's own vocabulary. But a"
+              "\n   convention nothing else shares is worth looking at once.\n")
+        print("  " + truncate(", ".join(alone), 300))
+
+    print(f"\n  Evidence, not a verdict: {found['references']}"
+          f" reference codebase(s) is enough to show a choice is contested,"
+          f"\n  not enough to settle it.")
+
+
+def layer_evidence(recs) -> dict[str, set]:
+    """Everything a `detect` rule can ask about, gathered once.
+
+    The catalogue's detectors look for decisions that leave no token behind --
+    timestamps, a delete policy, a version column. Those are absences, and an
+    absence is only visible as the shape it would have had, so each rule names
+    a position and a set of names to look for in it.
+    """
+    seen = {"any_attr_name": set(), "any_attr_call": set(), "any_attr_kw": set(),
+            "any_import": set(), "any_param": set(), "any_decorator": set()}
+    for r in recs:
+        for a in r.get("attrs") or ():
+            seen["any_attr_name"].add(a.get("name"))
+            if a.get("call"):
+                seen["any_attr_call"].add(symbol_root(a["call"]))
+            for kw in a.get("kw") or ():
+                seen["any_attr_kw"].add(kw)
+        for imp in r.get("imports") or ():
+            if imp.get("name"):
+                seen["any_import"].add(imp["name"])
+            seen["any_import"].add((imp.get("mod") or "").split(".")[0])
+        for d in r.get("decorators") or ():
+            seen["any_decorator"].add(symbol_root(d))
+        for p in r.get("params") or ():
+            for name in param_names(p):
+                seen["any_param"].add(name)
+        for m in r.get("methods") or ():
+            for d in m.get("decorators") or ():
+                seen["any_decorator"].add(symbol_root(d))
+            for p in m.get("params") or ():
+                for name in param_names(p):
+                    seen["any_param"].add(name)
+    return seen
+
+
+def detector_satisfied(detect: dict, evidence: dict[str, set]) -> bool:
+    """Whether the layer already does the thing an entry describes.
+
+    Any rule matching is enough. An entry naming both `created_at` and
+    `created` is describing one decision spelled two ways, not two decisions
+    that must both be present.
+    """
+    for position, names in (detect or {}).items():
+        bucket = evidence.get(position)
+        if bucket and any(n in bucket for n in names):
+            return True
+    return False
+
+
+def cmd_decide(args):
+    """Every decision this layer forces, with its options, evidence and cost.
+
+    The command the rest of the skill was pointing at. `cmd_questions` has said
+    "`decide` does that" in its docstring since before this existed.
+
+    It composes rather than computes. Three sources of decision, each of which
+    can reach something the others cannot:
+
+        forks in the exemplar     `rank_decisions` -- it does this two ways
+        the corpus                `compute_alternatives` -- it does something
+                                  the exemplar never thought of
+        absences                  the catalogue's detectors -- a decision that
+                                  leaves no trace at all when nobody makes it
+
+    and then attaches the half no index can produce: what each option means,
+    from `references/catalogue.toml`.
+    """
+    recs = collect(args, kinds=kinds_for(args))
+    if not recs:
+        return print("nothing matched -- widen --path, or try --kind func")
+    warn_if_stale()
+
+    entries, problems = load_catalogue()
+    for problem in problems:
+        print(f"  catalogue: {problem}")
+    by_token = catalogue_by_token()
+
+    target_recs = (read_target_fresh(args.target_path)
+                   if getattr(args, "target_path", None) else [])
+    evidence = layer_evidence(recs)
+    target_evidence = layer_evidence(target_recs)
+
+    decisions = []
+
+    # 1. What the corpus does here and this layer does not.
+    found = compute_alternatives(args) or {"candidates": []}
+    described: set[str] = set()
+    for n, share, tok, repos in found["candidates"]:
+        entry = by_token.get(tok)
+        ident = entry["id"] if entry else f"token-{slugify(tok)}"
+        if ident in described:
+            continue
+        described.add(ident)
+        decisions.append({
+            "score": 0.5 + min(n, 4) * 0.1 + share / 400,
+            "id": ident, "source": "corpus",
+            "title": entry["title"] if entry else f"the corpus uses {tok}",
+            "evidence": f"{n} reference codebase(s), up to {share}% of their"
+                        f" files, last {when(found['token_seen'][tok])}"
+                        f"  ({', '.join(sorted(repos)[:4])})",
+            "token": tok, "entry": entry,
+            "package": found["token_module"].get(tok, ""),
+        })
+
+    # 2. Decisions that leave no token -- visible only as the shape they would
+    #    have had. This is what `references/decisions.md` was a paper version of.
+    #
+    #    Scoped to the layer, or a models layer gets asked whether its reads
+    #    should be GET or POST. An entry declares the technology it belongs to
+    #    and optionally the kind of layer; both are checked against what is
+    #    actually in front of us, because a question about the wrong layer is
+    #    worse than no question -- it spends the reader's attention and teaches
+    #    them the list is not worth reading.
+    layer_techs = set()
+    for r in recs:
+        layer_techs |= set(args._tech.get((r["repo"], r["path"]), ()))
+    path_words = {seg.lower() for seg in (args.path or "").split("/")
+                  if seg and not any(c in seg for c in "*?[")}
+    for entry in entries:
+        if not entry.get("detect"):
+            continue
+        want_tech = entry.get("technology")
+        if want_tech and layer_techs and want_tech not in layer_techs:
+            continue
+        want_layer = entry.get("layer")
+        if want_layer and path_words and not (
+                {want_layer, want_layer.rstrip("s")} & {w.rstrip("s") for w in path_words}):
+            continue
+        if detector_satisfied(entry["detect"], evidence):
+            continue
+        settled = detector_satisfied(entry["detect"], target_evidence)
+        decisions.append({
+            "score": 0.7, "id": entry["id"], "source": "absence",
+            "title": entry["title"],
+            "evidence": ("the source does not do this anywhere in this layer"
+                         + ("; the generated code already does"
+                            if settled else "")),
+            "token": None, "entry": entry, "settled": settled,
+        })
+
+    # 3. Forks inside the exemplar, ranked the way `questions` ranks them.
+    ranked, by_code = rank_decisions(args, recs)
+    for score, ident, kind, title, note, item in ranked:
+        if ident in by_code or ident in described:
+            continue
+        # Only attach a description whose technology this layer actually uses.
+        # A token can belong to two libraries, and describing a pydantic field
+        # as a SQLModel decision is worse than leaving it undescribed.
+        entry = by_token.get(item)
+        if entry and entry.get("technology") and layer_techs \
+                and entry["technology"] not in layer_techs:
+            entry = None
+        decisions.append({
+            "score": score, "id": ident, "source": "fork",
+            "title": entry["title"] if entry else title,
+            "evidence": note, "token": item, "entry": entry,
+        })
+
+    decisions.sort(key=lambda d: -d["score"])
+    live = [d for d in decisions if not d.get("settled")][: args.limit]
+    settled = [d for d in decisions if d.get("settled")]
+
+    noun = "functions" if recs[0]["k"] == "func" else "classes"
+    print(f"{len(recs)} {noun} -> {len(decisions)} decision(s),"
+          f" showing {len(live)}\n")
+    if settled:
+        print(f"  {len(settled)} already answered by the generated code:")
+        for d in settled:
+            print(f"      {d['id']}")
+        print()
+
+    for i, d in enumerate(live, 1):
+        origin = {"corpus": "the corpus does this, your exemplar never does",
+                  "absence": "nobody has decided this",
+                  "fork": "your exemplar does this two ways"}[d["source"]]
+        print(f"  {i}. {d['title']}")
+        print(f"       why asked   {origin}")
+        print(f"       evidence    {d['evidence']}")
+        if d["entry"]:
+            describe(d["entry"], indent="       ")
+            if d["source"] != "fork":
+                print(f"       fidelity      choosing this DEPARTS from the"
+                      f" exemplar; conform will report it as ADDED")
+        else:
+            print("       (no entry in references/catalogue.toml -- evidence"
+                  " only. Add one and\n        every future project gets the"
+                  " description too.)")
+        if d.get("package") or d["token"]:
+            print(f"       price         {declared_by(d.get('package') or d['token'])}")
+        print()
+
+    below = len(decisions) - len(settled) - len(live)
+    if below > 0:
+        print(f"  {below} more below the line -- raise --limit to see them.")
+
+
+def declared_by(module: str) -> str:
+    """Whether adopting something costs a new dependency.
+
+    An option that cannot be costed cannot be chosen, and generated code that
+    imports a package no manifest declares fails at run time with a resolution
+    error that reads as a path problem.
+
+    Asked of the *module*, not the symbol. `Column` appears in no manifest
+    anywhere; `sqlalchemy`, which it comes from, appears in all of them, and
+    reporting the first would price a free option as a new commitment.
+    """
+    want = (module or "").split(".")[0].lower()
+    if not want:
+        return "unknown -- no import module recorded for this name"
+    for rec in read_index():
+        if rec.get("k") != "manifest":
+            continue
+        for section in ("deps", "dev_deps"):
+            for name in (rec.get(section) or {}):
+                if name.lower() == want or want.startswith(name.lower() + "."):
+                    return f"already declared by {rec['repo']}/{rec['path']}"
+    return ("no manifest declares it under this name -- check whether it comes"
+            " from a package you already have")
+
+
 def cmd_practice(args):
     """How the wider world resolves a choice, against how the exemplar resolves it.
 
@@ -2385,6 +2958,51 @@ def main(argv=None) -> int:
                         "paid for")
     p.add_argument("--limit", type=int, default=40)
     p.set_defaults(fn=cmd_deps)
+
+    p = sub.add_parser("decide",
+                       help="every decision this layer forces, with options, "
+                            "evidence and what each one means")
+    add_filters(p)
+    add_kind_and_tech(p)
+    p.add_argument("--target-path", metavar="GLOB",
+                   help="the generated layer, read from disk. Anything it "
+                        "already does is reported as settled, not asked")
+    p.add_argument("--ref-path", metavar="GLOB",
+                   help="which reference files count as the same kind of layer")
+    p.add_argument("--min-repos", type=int, default=2, metavar="N")
+    p.add_argument("--min-share", type=int, default=25, metavar="PCT")
+    p.add_argument("--usually", type=int, default=60)
+    p.add_argument("--limit", type=int,
+                   default=99 if configured_questions() == "many" else 5,
+                   help="how many to show. Not a budget -- `questions` in "
+                        "config.json decides how eagerly to ask")
+    p.set_defaults(fn=cmd_decide)
+
+    p = sub.add_parser("alternatives",
+                       help="what the corpus does in this kind of layer that yours does not")
+    p.add_argument("--path", help="glob selecting the layer, e.g. 'database/*/models/*'")
+    p.add_argument("--repo", help="restrict the exemplar side to one repository")
+    p.add_argument("--tech", metavar="NAME",
+                   help="the technology this layer is built on. Inferred from "
+                        "the layer when omitted; it decides which imports count")
+    p.add_argument("--lang", help="restrict to one language")
+    p.add_argument("--ref-path", metavar="GLOB",
+                   help="which reference files count as the same kind of layer. "
+                        "Derived from the fixed segments of --path when omitted "
+                        "-- '*/models/*' looks under directories named models, "
+                        "because comparing a models layer against a codebase's "
+                        "session setup proposes engine options as column options")
+    p.add_argument("--min-repos", type=int, default=2, metavar="N",
+                   help="how many reference codebases must use something before "
+                        "it is worth raising (default 2 -- one is an opinion)")
+    p.add_argument("--min-share", type=int, default=25, metavar="PCT",
+                   help="how much of a codebase's own layer must use it "
+                        "(default 25%%). This is what separates a decision from "
+                        "a catalogue entry: `Column` is in every model file of "
+                        "the codebase that uses it, `Divider` in a few per cent "
+                        "of MUI's demos")
+    p.add_argument("--limit", type=int, default=25)
+    p.set_defaults(fn=cmd_alternatives)
 
     p = sub.add_parser("practice",
                        help="how the reference corpus resolves a choice vs. the exemplar")

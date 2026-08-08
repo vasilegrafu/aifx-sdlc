@@ -516,8 +516,27 @@ delete behaviour before the entities exist, or about a barrel file before you
 know how many modules there are. **Ask at each point as it arrives.**
 
 ```bash
-scripts/query.py questions --path '<source layer>'     --target-path '<generated layer>'
+scripts/query.py decide --path '<source layer>' --target-path '<generated layer>'
 ```
+
+**`decide` is the command to run here.** `questions` still exists and still
+ranks forks, but it can only raise something the exemplar does *two ways*.
+`decide` composes three sources, and each reaches decisions the others cannot:
+
+| source | what only it can find |
+|---|---|
+| forks in the exemplar | a choice the codebase makes inconsistently |
+| the reference corpus | a choice the exemplar **never faced** — no fork, no record, invisible to everything else |
+| the catalogue's detectors | a decision that leaves no trace at all when nobody makes it: timestamps, a delete policy, migrations |
+
+Each decision arrives with its evidence — how many codebases, how much of their
+code, how recently, what it costs in dependencies — and with what it *means*,
+from `references/catalogue.toml`. That last part is the half no index can
+compute, which is why it is written down rather than improvised.
+
+Where a decision has no catalogue entry you get the evidence and a note saying
+the description is missing. **Add the entry** when that happens: it is four
+sentences, and every future project gets them.
 
 `questions` ranks what this layer forces by **what it costs to get wrong** — how
 irreversible the kind of choice is, how genuinely forked the layer is, and

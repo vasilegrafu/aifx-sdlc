@@ -415,6 +415,62 @@ def indexed_roles() -> dict[str, str]:
     return out
 
 
+CATALOGUE_FIELDS = ("id", "title", "what", "advantage", "disadvantage",
+                    "right_when")
+
+
+def load_catalogue() -> tuple[list[dict], list[str]]:
+    """`(entries, problems)` from `references/catalogue.toml`.
+
+    The half of a question that cannot be computed. `alternatives` can find
+    that two codebases use `AssociationProxy` and this one does not; nothing in
+    an index can say what that buys or costs, because it is judgement rather
+    than structure. Written once here, reused every time the decision recurs.
+
+    Problems are returned rather than raised. A malformed entry should cost its
+    own description and nothing else -- the evidence around it is still worth
+    printing, and a catalogue that refuses to load takes every other decision
+    down with it.
+    """
+    import tomllib
+
+    path = skill_root() / "references" / "catalogue.toml"
+    if not path.is_file():
+        return [], []
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, tomllib.TOMLDecodeError) as exc:
+        return [], [f"catalogue.toml did not parse: {exc}"]
+
+    entries, problems, seen = [], [], set()
+    for entry in data.get("decision") or ():
+        missing = [f for f in CATALOGUE_FIELDS if not entry.get(f)]
+        if missing:
+            problems.append(f"{entry.get('id', '<no id>')}: missing "
+                            f"{', '.join(missing)}")
+            continue
+        if entry["id"] in seen:
+            problems.append(f"{entry['id']}: duplicate id")
+            continue
+        if not entry.get("tokens") and not entry.get("detect"):
+            problems.append(f"{entry['id']}: neither tokens nor detect, so "
+                            f"nothing can ever reach it")
+            continue
+        seen.add(entry["id"])
+        entries.append(entry)
+    return entries, problems
+
+
+def catalogue_by_token() -> dict[str, dict]:
+    """`{token: entry}`. One decision may arrive under several names --
+    `SQLModel`, `Field` and `Relationship` are one choice."""
+    out = {}
+    for entry in load_catalogue()[0]:
+        for token in entry.get("tokens") or ():
+            out.setdefault(token, entry)
+    return out
+
+
 def index_schema_warning() -> str | None:
     """Whether this index was written by an `index.py` that disagrees with us.
 
